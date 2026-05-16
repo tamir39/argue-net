@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from app.agents.base import Agent
 from app.agents.debaters import make_con, make_mediator, make_pro
 from app.config import settings
-from app.providers.litellm_provider import complete, stream_completion
+from app.providers import complete, stream_completion
 from app.schemas.events import Speaker, StreamEvent
 
 NOVA_SYSTEM = """Bạn là NOVA — trợ lý AI cá nhân, một ngôi sao bùng sáng dẫn đường cho người dùng.
