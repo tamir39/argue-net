@@ -295,8 +295,6 @@ export default function ChatPage() {
             >
               {voiceOutOn ? "🔊 Loa" : "🔇 Loa"}
             </button>
-              </>
-            )}
             <button
               onClick={reset}
               disabled={busy || messages.length === 0}
@@ -304,6 +302,8 @@ export default function ChatPage() {
             >
               Reset
             </button>
+              </>
+            )}
           </div>
         </header>
 
