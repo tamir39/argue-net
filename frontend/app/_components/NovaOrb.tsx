@@ -13,54 +13,159 @@ const COLORS: Record<SpeakerKey, [number, number, number]> = {
   mediator: [0.99, 0.78, 0.3],
 };
 
+// ─────────────────────────────────────────────────────────────
+// Core: subtly deforming wireframe icosphere
+// ─────────────────────────────────────────────────────────────
+
 const CORE_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uActivity;
   varying vec3 vNormal;
-  varying vec3 vWorldPos;
-  varying float vDisp;
 
-  // Smooth pseudo-3D noise (sin-stack, cheap)
-  float n3(vec3 p) {
-    float a = sin(p.x * 1.7 + uTime * 0.55) * cos(p.y * 1.3 - uTime * 0.35);
-    float b = sin(p.z * 2.1 + uTime * 0.7) * cos(p.x * 0.9 + uTime * 0.25);
-    float c = sin(dot(p, vec3(1.3, -1.7, 2.1)) + uTime * 0.4);
-    return (a + b + c) / 3.0;
+  float n(vec3 p) {
+    return sin(p.x * 1.6 + uTime * 0.4) * cos(p.y * 1.3 - uTime * 0.3)
+         + sin(p.z * 1.9 + uTime * 0.55) * 0.5;
   }
 
   void main() {
-    float n1 = n3(position * 1.3);
-    float n2 = n3(position * 3.0 + vec3(11.7, 3.2, 8.4));
-    float n3a = n3(position * 0.5 - vec3(uTime * 0.15));
-    float disp = n1 * 0.55 + n2 * 0.25 + n3a * 0.30;
-    float amp = 0.18 + 0.40 * uActivity;
-    vec3 displaced = position + normal * disp * amp;
-    vDisp = disp;
+    float disp = n(position * 1.1) * (0.04 + 0.10 * uActivity);
+    vec3 displaced = position + normal * disp;
     vNormal = normalize(normalMatrix * normal);
-    vWorldPos = (modelMatrix * vec4(displaced, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
   }
 `;
 
 const CORE_FRAG = /* glsl */ `
   uniform vec3 uColor;
-  uniform vec3 uCamera;
   uniform float uActivity;
-  uniform float uTime;
   varying vec3 vNormal;
-  varying vec3 vWorldPos;
-  varying float vDisp;
 
   void main() {
-    vec3 view = normalize(uCamera - vWorldPos);
-    float fres = pow(1.0 - clamp(dot(vNormal, view), 0.0, 1.0), 2.2);
-    float pulse = 0.5 + 0.5 * sin(uTime * 2.5);
-    float core = 0.20 + fres * 1.6 + uActivity * (0.55 + 0.35 * pulse) + abs(vDisp) * 0.3;
-    vec3 col = uColor * core;
-    float alpha = 0.55 + fres * 0.45 + uActivity * 0.20;
-    gl_FragColor = vec4(col, alpha);
+    float edge = 0.55 + 0.35 * uActivity;
+    gl_FragColor = vec4(uColor * edge, 0.55 + 0.20 * uActivity);
   }
 `;
+
+function CoreLattice({
+  uniforms,
+}: {
+  uniforms: { uTime: { value: number }; uActivity: { value: number }; uColor: { value: THREE.Color } };
+}) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame((s) => {
+    if (ref.current) {
+      ref.current.rotation.y += 0.0025;
+      ref.current.rotation.x = Math.sin(s.clock.elapsedTime * 0.25) * 0.12;
+    }
+  });
+  return (
+    <mesh ref={ref}>
+      <icosahedronGeometry args={[1, 4]} />
+      <shaderMaterial
+        uniforms={uniforms}
+        vertexShader={CORE_VERT}
+        fragmentShader={CORE_FRAG}
+        wireframe
+        transparent
+        depthWrite={false}
+      />
+    </mesh>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Gyro rings — 3 thin torus rings on different axes
+// ─────────────────────────────────────────────────────────────
+
+function GyroRings({
+  color,
+  activityRef,
+}: {
+  color: THREE.Color;
+  activityRef: React.RefObject<number>;
+}) {
+  const g1 = useRef<THREE.Mesh>(null);
+  const g2 = useRef<THREE.Mesh>(null);
+  const g3 = useRef<THREE.Mesh>(null);
+  useFrame((s) => {
+    const t = s.clock.elapsedTime;
+    const a = activityRef.current ?? 0;
+    const rotMult = 1 + a * 1.5;
+    if (g1.current) {
+      g1.current.rotation.x = t * 0.35 * rotMult;
+      g1.current.rotation.y = t * 0.15 * rotMult;
+      g1.current.scale.setScalar(1 + 0.04 * Math.sin(t * 1.6));
+    }
+    if (g2.current) {
+      g2.current.rotation.y = t * 0.45 * rotMult;
+      g2.current.rotation.z = t * 0.2 * rotMult;
+      g2.current.scale.setScalar(1 + 0.05 * Math.sin(t * 1.2 + 1.5));
+    }
+    if (g3.current) {
+      g3.current.rotation.z = t * 0.25 * rotMult;
+      g3.current.rotation.x = t * 0.3 * rotMult;
+      g3.current.scale.setScalar(1 + 0.05 * Math.sin(t * 0.9 + 3));
+    }
+  });
+  return (
+    <group>
+      <mesh ref={g1}>
+        <torusGeometry args={[1.25, 0.006, 6, 128]} />
+        <meshBasicMaterial color={color} transparent opacity={0.55} />
+      </mesh>
+      <mesh ref={g2} rotation={[Math.PI / 2.3, 0, 0.4]}>
+        <torusGeometry args={[1.45, 0.005, 6, 128]} />
+        <meshBasicMaterial color={color} transparent opacity={0.45} />
+      </mesh>
+      <mesh ref={g3} rotation={[0.3, Math.PI / 3, 0.8]}>
+        <torusGeometry args={[1.18, 0.005, 6, 128]} />
+        <meshBasicMaterial color={color} transparent opacity={0.5} />
+      </mesh>
+    </group>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Filament threads — line segments forming inner lattice
+// ─────────────────────────────────────────────────────────────
+
+function FilamentLattice({ color }: { color: THREE.Color }) {
+  const ref = useRef<THREE.LineSegments>(null);
+  const positions = useMemo(() => {
+    const N = 70; // 70 line segments = 140 vertices
+    const arr = new Float32Array(N * 2 * 3);
+    for (let i = 0; i < N; i++) {
+      // Pick two random points on/near unit sphere
+      for (let j = 0; j < 2; j++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = 0.95 + Math.random() * 0.25;
+        arr[(i * 2 + j) * 3] = r * Math.sin(phi) * Math.cos(theta);
+        arr[(i * 2 + j) * 3 + 1] = r * Math.cos(phi);
+        arr[(i * 2 + j) * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+      }
+    }
+    return arr;
+  }, []);
+  useFrame((s) => {
+    if (ref.current) {
+      ref.current.rotation.y += 0.001;
+      ref.current.rotation.x = Math.sin(s.clock.elapsedTime * 0.1) * 0.08;
+    }
+  });
+  return (
+    <lineSegments ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <lineBasicMaterial color={color} transparent opacity={0.28} />
+    </lineSegments>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Sparse drifting particles — small dust, no halo blowout
+// ─────────────────────────────────────────────────────────────
 
 const PARTICLE_VERT = /* glsl */ `
   attribute float aSeed;
@@ -71,40 +176,33 @@ const PARTICLE_VERT = /* glsl */ `
   varying float vGlow;
   varying float vTendrilMix;
 
-  // Each particle does idle orbit + reaches outward when active
   void main() {
-    float t = uTime * 0.35 + aSeed * 30.0;
-
-    // Idle orbit position
-    float theta = t * (0.7 + aSeed * 0.6) + aSeed * 6.2831;
-    float phi = aSeed * 3.14159 + sin(uTime * 0.2 + aSeed * 5.0) * 0.6;
+    float t = uTime * 0.28 + aSeed * 30.0;
+    float theta = t * (0.6 + aSeed * 0.5) + aSeed * 6.2831;
+    float phi = aSeed * 3.14159 + sin(uTime * 0.15 + aSeed * 5.0) * 0.5;
     vec3 idlePos = vec3(
       cos(theta) * sin(phi),
-      cos(phi) + sin(uTime * 0.5 + aSeed * 10.0) * 0.15,
+      cos(phi),
       sin(theta) * sin(phi)
     ) * aRadius;
 
-    // Tendril reach: subset of particles (aDir != 0) extend along aDir when active
     float tendrilMag = length(aDir);
-    float reach = uActivity * tendrilMag * (1.5 + 0.8 * sin(uTime * 3.0 + aSeed * 20.0));
+    float reach = uActivity * tendrilMag * (1.2 + 0.5 * sin(uTime * 2.5 + aSeed * 20.0));
     vec3 tendril = aDir * reach;
 
-    // Idle pulse breathing
-    float breathe = 1.0 + uActivity * 0.45 * sin(uTime * 2.2 + aSeed * 12.0);
-    vec3 pos = idlePos * breathe + tendril;
+    vec3 pos = idlePos + tendril;
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (2.6 + 3.5 * uActivity + tendrilMag * 1.5) * (320.0 / -mv.z);
+    gl_PointSize = (1.4 + 1.8 * uActivity + tendrilMag * 0.6) * (240.0 / -mv.z);
 
-    vGlow = 0.4 + 0.6 * sin(uTime * 1.7 + aSeed * 40.0);
+    vGlow = 0.35 + 0.45 * sin(uTime * 1.5 + aSeed * 40.0);
     vTendrilMix = tendrilMag;
   }
 `;
 
 const PARTICLE_FRAG = /* glsl */ `
   uniform vec3 uColor;
-  uniform float uActivity;
   varying float vGlow;
   varying float vTendrilMix;
 
@@ -112,15 +210,14 @@ const PARTICLE_FRAG = /* glsl */ `
     vec2 c = gl_PointCoord - 0.5;
     float d = length(c);
     if (d > 0.5) discard;
-    float fall = (1.0 - d * 2.0);
-    float a = fall * (0.35 + 0.50 * vGlow + 0.30 * uActivity * vTendrilMix);
-    vec3 col = uColor * (1.0 + vGlow * 0.4 + vTendrilMix * 0.6);
-    gl_FragColor = vec4(col, a);
+    float fall = 1.0 - d * 2.0;
+    float a = fall * (0.20 + 0.35 * vGlow + 0.25 * vTendrilMix);
+    gl_FragColor = vec4(uColor * (0.8 + vGlow * 0.4), a);
   }
 `;
 
-const PARTICLE_COUNT = 1800;
-const TENDRIL_RATIO = 0.22; // ~22% of particles act as tendril seeds
+const PARTICLE_COUNT = 600;
+const TENDRIL_RATIO = 0.18;
 
 function useParticleBuffers() {
   return useMemo(() => {
@@ -130,14 +227,14 @@ function useParticleBuffers() {
     const dirs = new Float32Array(PARTICLE_COUNT * 3);
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       seeds[i] = Math.random();
-      radii[i] = 1.55 + Math.random() * 0.9;
+      radii[i] = 1.7 + Math.random() * 0.8;
       const isTendril = Math.random() < TENDRIL_RATIO;
       if (isTendril) {
         const u = Math.random();
         const v = Math.random();
         const theta = 2 * Math.PI * u;
         const phi = Math.acos(2 * v - 1);
-        const mag = 0.6 + Math.random() * 1.4;
+        const mag = 0.5 + Math.random() * 1.0;
         dirs[i * 3] = Math.sin(phi) * Math.cos(theta) * mag;
         dirs[i * 3 + 1] = Math.cos(phi) * mag;
         dirs[i * 3 + 2] = Math.sin(phi) * Math.sin(theta) * mag;
@@ -146,6 +243,10 @@ function useParticleBuffers() {
     return { positions, seeds, radii, dirs };
   }, []);
 }
+
+// ─────────────────────────────────────────────────────────────
+// Composite NovaOrb
+// ─────────────────────────────────────────────────────────────
 
 export function NovaOrb({
   activeSpeaker,
@@ -157,7 +258,6 @@ export function NovaOrb({
       uTime: { value: 0 },
       uActivity: { value: 0 },
       uColor: { value: new THREE.Color(...COLORS.jarvis) },
-      uCamera: { value: new THREE.Vector3() },
     }),
     [],
   );
@@ -171,15 +271,15 @@ export function NovaOrb({
     [],
   );
 
+  // Shared color used by ring + filament basic materials (mutated in place)
+  const liveColor = useMemo(() => new THREE.Color(...COLORS.jarvis), []);
   const targetCol = useRef(new THREE.Color(...COLORS.jarvis));
+  const activityRef = useRef(0);
 
   useEffect(() => {
     const key: SpeakerKey = activeSpeaker ?? "jarvis";
     targetCol.current.setRGB(...COLORS[key]);
   }, [activeSpeaker]);
-
-  const meshRef = useRef<THREE.Mesh>(null);
-  const buffers = useParticleBuffers();
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
@@ -187,34 +287,25 @@ export function NovaOrb({
 
     coreUniforms.uTime.value = t;
     coreUniforms.uActivity.value +=
-      (targetActivity - coreUniforms.uActivity.value) * 0.08;
-    coreUniforms.uColor.value.lerp(targetCol.current, 0.05);
-    coreUniforms.uCamera.value.copy(state.camera.position);
+      (targetActivity - coreUniforms.uActivity.value) * 0.06;
+    coreUniforms.uColor.value.lerp(targetCol.current, 0.04);
 
     particleUniforms.uTime.value = t;
     particleUniforms.uActivity.value +=
-      (targetActivity - particleUniforms.uActivity.value) * 0.08;
-    particleUniforms.uColor.value.lerp(targetCol.current, 0.05);
+      (targetActivity - particleUniforms.uActivity.value) * 0.06;
+    particleUniforms.uColor.value.lerp(targetCol.current, 0.04);
 
-    if (meshRef.current) {
-      meshRef.current.rotation.y += 0.004;
-      meshRef.current.rotation.x = Math.sin(t * 0.25) * 0.18;
-    }
+    liveColor.lerp(targetCol.current, 0.04);
+    activityRef.current = coreUniforms.uActivity.value;
   });
+
+  const buffers = useParticleBuffers();
 
   return (
     <group>
-      <mesh ref={meshRef}>
-        <icosahedronGeometry args={[1, 64]} />
-        <shaderMaterial
-          uniforms={coreUniforms}
-          vertexShader={CORE_VERT}
-          fragmentShader={CORE_FRAG}
-          transparent
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-        />
-      </mesh>
+      <CoreLattice uniforms={coreUniforms} />
+      <FilamentLattice color={liveColor} />
+      <GyroRings color={liveColor} activityRef={activityRef} />
       <points>
         <bufferGeometry>
           <bufferAttribute
