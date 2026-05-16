@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useSpeechRecognition, useSpeechSynthesis } from "./_hooks/voice";
+
 type Speaker = "jarvis" | "pro" | "con" | "mediator" | "system" | "user";
 
 type Message = {
@@ -51,7 +53,9 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState("");
+  const [voiceOutOn, setVoiceOutOn] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tts = useSpeechSynthesis("vi-VN");
 
   useEffect(() => {
     let sid = localStorage.getItem("arguenet_session_id");
@@ -67,79 +71,109 @@ export default function ChatPage() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text || busy || !sessionId) return;
+  const send = useCallback(
+    async (override?: string) => {
+      const text = (override ?? input).trim();
+      if (!text || busy || !sessionId) return;
 
-    setMessages((m) => [...m, { speaker: "user", text }]);
-    setInput("");
-    setBusy(true);
+      tts.cancel();
+      setMessages((m) => [...m, { speaker: "user", text }]);
+      setInput("");
+      setBusy(true);
 
-    try {
-      const res = await fetch(`${BACKEND_URL}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, message: text }),
-      });
-      if (!res.ok || !res.body) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+      const speakOn = voiceOutOn;
+      let ttsSpeaker: string | null = null;
+      let ttsBuffer = "";
+      const flushTts = () => {
+        if (
+          speakOn &&
+          ttsSpeaker &&
+          ttsSpeaker !== "system" &&
+          ttsSpeaker !== "user" &&
+          ttsBuffer.trim()
+        ) {
+          tts.speak(ttsBuffer);
+        }
+        ttsBuffer = "";
+      };
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
+      try {
+        const res = await fetch(`${BACKEND_URL}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, message: text }),
+        });
+        if (!res.ok || !res.body) {
+          throw new Error(`HTTP ${res.status}`);
+        }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
 
-        const blocks = buffer.split(/\r?\n\r?\n/);
-        buffer = blocks.pop() ?? "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
 
-        for (const block of blocks) {
-          if (!block.trim()) continue;
-          let eventName = "message";
-          let dataLine = "";
-          for (const line of block.split(/\r?\n/)) {
-            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-            else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
-          }
-          if (!dataLine) continue;
+          const blocks = buffer.split(/\r?\n\r?\n/);
+          buffer = blocks.pop() ?? "";
 
-          if (eventName === "done") continue;
-          if (eventName === "error") {
-            try {
-              const err = JSON.parse(dataLine);
-              appendInfo(setMessages, `Lỗi: ${err.error}`);
-            } catch {
-              appendInfo(setMessages, "Lỗi không xác định.");
+          for (const block of blocks) {
+            if (!block.trim()) continue;
+            let eventName = "message";
+            let dataLine = "";
+            for (const line of block.split(/\r?\n/)) {
+              if (line.startsWith("event:")) eventName = line.slice(6).trim();
+              else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
             }
-            continue;
-          }
+            if (!dataLine) continue;
 
-          try {
-            const ev = JSON.parse(dataLine) as Message;
-            if (ev.kind === "info") {
-              appendInfo(setMessages, ev.text);
+            if (eventName === "done") {
+              flushTts();
               continue;
             }
-            appendToken(setMessages, ev);
-          } catch {
-            // ignore malformed event
+            if (eventName === "error") {
+              try {
+                const err = JSON.parse(dataLine);
+                appendInfo(setMessages, `Lỗi: ${err.error}`);
+              } catch {
+                appendInfo(setMessages, "Lỗi không xác định.");
+              }
+              continue;
+            }
+
+            try {
+              const ev = JSON.parse(dataLine) as Message;
+              if (ev.kind === "info") {
+                appendInfo(setMessages, ev.text);
+                continue;
+              }
+              if (ev.speaker !== ttsSpeaker) {
+                flushTts();
+                ttsSpeaker = ev.speaker;
+              }
+              ttsBuffer += ev.text;
+              appendToken(setMessages, ev);
+            } catch {
+              // ignore malformed event
+            }
           }
         }
+        flushTts();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        appendInfo(setMessages, `Lỗi mạng: ${msg}`);
+      } finally {
+        setBusy(false);
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      appendInfo(setMessages, `Lỗi mạng: ${msg}`);
-    } finally {
-      setBusy(false);
-    }
-  }, [input, busy, sessionId]);
+    },
+    [input, busy, sessionId, voiceOutOn, tts],
+  );
 
   const reset = useCallback(async () => {
     if (!sessionId) return;
+    tts.cancel();
     try {
       await fetch(`${BACKEND_URL}/sessions/reset`, {
         method: "POST",
@@ -150,7 +184,24 @@ export default function ChatPage() {
       /* ignore */
     }
     setMessages([]);
-  }, [sessionId]);
+  }, [sessionId, tts]);
+
+  const mic = useSpeechRecognition({
+    lang: "vi-VN",
+    onResult: (text, isFinal) => {
+      setInput(text);
+      if (isFinal && text.trim()) {
+        send(text);
+      }
+    },
+  });
+
+  const toggleVoiceOut = useCallback(() => {
+    setVoiceOutOn((on) => {
+      if (on) tts.cancel();
+      return !on;
+    });
+  }, [tts]);
 
   return (
     <main className="flex-1 flex flex-col items-center px-4">
@@ -168,13 +219,42 @@ export default function ChatPage() {
               <span className="text-amber-300">Polaris</span>
             </p>
           </div>
-          <button
-            onClick={reset}
-            disabled={busy || messages.length === 0}
-            className="text-xs px-3 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            Reset
-          </button>
+          <div className="flex items-center gap-2">
+            {mic.supported && (
+              <button
+                onClick={mic.listening ? mic.stop : mic.start}
+                disabled={busy}
+                title={mic.listening ? "Đang nghe — bấm để dừng" : "Bấm để nói"}
+                className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                  mic.listening
+                    ? "border-rose-500 bg-rose-500/15 text-rose-200 animate-pulse"
+                    : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
+                }`}
+              >
+                {mic.listening ? "● Nghe" : "🎤 Mic"}
+              </button>
+            )}
+            {tts.supported && (
+              <button
+                onClick={toggleVoiceOut}
+                title={voiceOutOn ? "Tắt giọng nói" : "Bật giọng nói"}
+                className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                  voiceOutOn
+                    ? "border-cyan-500 bg-cyan-500/15 text-cyan-200"
+                    : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
+                }`}
+              >
+                {voiceOutOn ? "🔊 Loa" : "🔇 Loa"}
+              </button>
+            )}
+            <button
+              onClick={reset}
+              disabled={busy || messages.length === 0}
+              className="text-xs px-3 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Reset
+            </button>
+          </div>
         </header>
 
         <div
