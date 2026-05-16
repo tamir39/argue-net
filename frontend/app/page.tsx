@@ -220,33 +220,42 @@ export default function ChatPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {mic.supported && (
-              <button
-                onClick={mic.listening ? mic.stop : mic.start}
-                disabled={busy}
-                title={mic.listening ? "Đang nghe — bấm để dừng" : "Bấm để nói"}
-                className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                  mic.listening
-                    ? "border-rose-500 bg-rose-500/15 text-rose-200 animate-pulse"
-                    : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
-                }`}
-              >
-                {mic.listening ? "● Nghe" : "🎤 Mic"}
-              </button>
-            )}
-            {tts.supported && (
-              <button
-                onClick={toggleVoiceOut}
-                title={voiceOutOn ? "Tắt giọng nói" : "Bật giọng nói"}
-                className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                  voiceOutOn
-                    ? "border-cyan-500 bg-cyan-500/15 text-cyan-200"
-                    : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
-                }`}
-              >
-                {voiceOutOn ? "🔊 Loa" : "🔇 Loa"}
-              </button>
-            )}
+            <button
+              onClick={mic.listening ? mic.stop : mic.start}
+              disabled={busy || !mic.supported}
+              title={
+                !mic.supported
+                  ? "Browser không hỗ trợ SpeechRecognition (thử Chrome/Edge)"
+                  : mic.listening
+                    ? "Đang nghe — bấm để dừng"
+                    : "Bấm để nói"
+              }
+              className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                mic.listening
+                  ? "border-rose-500 bg-rose-500/15 text-rose-200 animate-pulse"
+                  : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
+              }`}
+            >
+              {mic.listening ? "● Nghe" : "🎤 Mic"}
+            </button>
+            <button
+              onClick={toggleVoiceOut}
+              disabled={!tts.supported}
+              title={
+                !tts.supported
+                  ? "Browser không hỗ trợ speechSynthesis"
+                  : voiceOutOn
+                    ? "Tắt giọng nói"
+                    : "Bật giọng nói"
+              }
+              className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                voiceOutOn
+                  ? "border-cyan-500 bg-cyan-500/15 text-cyan-200"
+                  : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
+              }`}
+            >
+              {voiceOutOn ? "🔊 Loa" : "🔇 Loa"}
+            </button>
             <button
               onClick={reset}
               disabled={busy || messages.length === 0}
