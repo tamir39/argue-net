@@ -85,6 +85,90 @@ export function useSpeechRecognition(opts: SpeechOpts) {
   return { supported, listening, start, stop };
 }
 
+export function useMicDevices() {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selected, setSelectedState] = useState<string>("");
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [supported, setSupported] = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices) {
+      setSupported(false);
+      return;
+    }
+    setSupported(true);
+    const saved = localStorage.getItem("arguenet_mic_id");
+    if (saved) setSelectedState(saved);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices)
+      return;
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      setDevices(list.filter((d) => d.kind === "audioinput"));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!supported) return;
+    refresh();
+    const onChange = () => refresh();
+    navigator.mediaDevices.addEventListener("devicechange", onChange);
+    return () =>
+      navigator.mediaDevices.removeEventListener("devicechange", onChange);
+  }, [refresh, supported]);
+
+  const setSelected = useCallback((id: string) => {
+    setSelectedState(id);
+    if (id) localStorage.setItem("arguenet_mic_id", id);
+    else localStorage.removeItem("arguenet_mic_id");
+  }, []);
+
+  const requestPermission = useCallback(async () => {
+    if (!supported) return false;
+    if (permissionGranted) return true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setPermissionGranted(true);
+      await refresh();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [permissionGranted, refresh, supported]);
+
+  const claim = useCallback(
+    async (deviceId: string): Promise<boolean> => {
+      if (!supported || !deviceId) return false;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: deviceId } },
+        });
+        stream.getTracks().forEach((t) => t.stop());
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [supported],
+  );
+
+  return {
+    supported,
+    devices,
+    selected,
+    setSelected,
+    permissionGranted,
+    requestPermission,
+    claim,
+    refresh,
+  };
+}
+
 export function useSpeechSynthesis(lang = "vi-VN") {
   const [voice, setVoice] = useState<SpeechSynthesisVoice | null>(null);
   const [supported, setSupported] = useState(false);

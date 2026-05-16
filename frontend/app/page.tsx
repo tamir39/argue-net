@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useSpeechRecognition, useSpeechSynthesis } from "./_hooks/voice";
+import {
+  useMicDevices,
+  useSpeechRecognition,
+  useSpeechSynthesis,
+} from "./_hooks/voice";
 
 type Speaker = "jarvis" | "pro" | "con" | "mediator" | "system" | "user";
 
@@ -201,6 +205,18 @@ export default function ChatPage() {
     },
   });
 
+  const micDevices = useMicDevices();
+
+  const startMic = useCallback(async () => {
+    if (!micDevices.permissionGranted) {
+      await micDevices.requestPermission();
+    }
+    if (micDevices.selected) {
+      await micDevices.claim(micDevices.selected);
+    }
+    mic.start();
+  }, [mic, micDevices]);
+
   const toggleVoiceOut = useCallback(() => {
     setVoiceOutOn((on) => {
       if (on) tts.cancel();
@@ -227,8 +243,24 @@ export default function ChatPage() {
           <div className="flex items-center gap-2">
             {mounted && (
               <>
+            {micDevices.devices.length > 1 && (
+              <select
+                value={micDevices.selected}
+                onChange={(e) => micDevices.setSelected(e.target.value)}
+                disabled={busy || mic.listening}
+                title="Chọn microphone"
+                className="text-xs bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1.5 max-w-[180px] truncate"
+              >
+                <option value="">Mic mặc định</option>
+                {micDevices.devices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Mic ${d.deviceId.slice(0, 6)}`}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
-              onClick={mic.listening ? mic.stop : mic.start}
+              onClick={mic.listening ? mic.stop : startMic}
               disabled={busy || !mic.supported}
               title={
                 !mic.supported
