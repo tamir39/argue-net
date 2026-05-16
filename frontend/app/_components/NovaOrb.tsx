@@ -14,160 +14,199 @@ const COLORS: Record<SpeakerKey, [number, number, number]> = {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Core: subtly deforming wireframe icosphere
+// Shell particles — ~3000 dots on a soft sphere shell with
+// noise-driven radial wobble. This is the "body" of NovaOrb.
 // ─────────────────────────────────────────────────────────────
 
-const CORE_VERT = /* glsl */ `
+const SHELL_VERT = /* glsl */ `
+  attribute float aSeed;
   uniform float uTime;
   uniform float uActivity;
-  varying vec3 vNormal;
+  varying float vGlow;
 
-  float n(vec3 p) {
-    return sin(p.x * 1.6 + uTime * 0.4) * cos(p.y * 1.3 - uTime * 0.3)
-         + sin(p.z * 1.9 + uTime * 0.55) * 0.5;
+  float n3(vec3 p) {
+    return sin(p.x * 1.7 + uTime * 0.5) * cos(p.y * 1.3 - uTime * 0.4)
+         + sin(p.z * 2.0 + uTime * 0.6) * 0.5;
   }
 
   void main() {
-    float disp = n(position * 1.1) * (0.04 + 0.10 * uActivity);
-    vec3 displaced = position + normal * disp;
-    vNormal = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
+    // Two-octave noise displacement, amplitude scales with activity
+    float n1 = n3(position * 1.2);
+    float n2 = n3(position * 2.6 + vec3(11.0, 3.0, 7.0));
+    float disp = n1 * 0.6 + n2 * 0.35;
+    float amp = 0.06 + 0.22 * uActivity;
+    vec3 pos = position * (1.0 + disp * amp);
+
+    // Tiny per-particle jitter so it never freezes
+    pos += vec3(
+      sin(uTime * 1.0 + aSeed * 53.0),
+      cos(uTime * 1.3 + aSeed * 31.0),
+      sin(uTime * 0.7 + aSeed * 71.0)
+    ) * (0.012 + 0.02 * uActivity);
+
+    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (1.6 + 1.0 * uActivity) * (240.0 / -mv.z);
+
+    vGlow = 0.35 + 0.5 * sin(uTime * 1.4 + aSeed * 40.0);
   }
 `;
 
-const CORE_FRAG = /* glsl */ `
+const SHELL_FRAG = /* glsl */ `
   uniform vec3 uColor;
-  uniform float uActivity;
-  varying vec3 vNormal;
+  varying float vGlow;
 
   void main() {
-    float edge = 0.55 + 0.35 * uActivity;
-    gl_FragColor = vec4(uColor * edge, 0.55 + 0.20 * uActivity);
+    vec2 c = gl_PointCoord - 0.5;
+    float d = length(c);
+    if (d > 0.5) discard;
+    float fall = 1.0 - d * 2.0;
+    float a = fall * (0.35 + 0.4 * vGlow);
+    gl_FragColor = vec4(uColor * (0.7 + vGlow * 0.4), a);
   }
 `;
 
-function CoreLattice({
-  uniforms,
-}: {
-  uniforms: { uTime: { value: number }; uActivity: { value: number }; uColor: { value: THREE.Color } };
-}) {
-  const ref = useRef<THREE.Mesh>(null);
-  useFrame((s) => {
-    if (ref.current) {
-      ref.current.rotation.y += 0.0025;
-      ref.current.rotation.x = Math.sin(s.clock.elapsedTime * 0.25) * 0.12;
+function ShellParticles({ uniforms }: { uniforms: ShaderUniforms }) {
+  const buffers = useMemo(() => {
+    const COUNT = 3000;
+    const positions = new Float32Array(COUNT * 3);
+    const seeds = new Float32Array(COUNT);
+    for (let i = 0; i < COUNT; i++) {
+      // Fibonacci-like spherical distribution for even coverage
+      const u = Math.random();
+      const v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      positions[i * 3] = Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = Math.cos(phi);
+      positions[i * 3 + 2] = Math.sin(phi) * Math.sin(theta);
+      seeds[i] = Math.random();
     }
-  });
+    return { positions, seeds };
+  }, []);
   return (
-    <mesh ref={ref}>
-      <icosahedronGeometry args={[1, 4]} />
+    <points>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[buffers.positions, 3]} />
+        <bufferAttribute attach="attributes-aSeed" args={[buffers.seeds, 1]} />
+      </bufferGeometry>
       <shaderMaterial
         uniforms={uniforms}
-        vertexShader={CORE_VERT}
-        fragmentShader={CORE_FRAG}
-        wireframe
+        vertexShader={SHELL_VERT}
+        fragmentShader={SHELL_FRAG}
         transparent
         depthWrite={false}
+        blending={THREE.AdditiveBlending}
       />
-    </mesh>
+    </points>
   );
 }
 
 // ─────────────────────────────────────────────────────────────
-// Gyro rings — 3 thin torus rings on different axes
+// Orbital ring particles — 3 rings, ~250 dots each, at different
+// axes. Replaces the torus meshes. Each ring is a <group> with
+// a rotation prop; particles orbit along the local XY plane.
 // ─────────────────────────────────────────────────────────────
 
-function GyroRings({
-  color,
-  activityRef,
+const RING_VERT = /* glsl */ `
+  attribute float aAngle;
+  attribute float aSeed;
+  uniform float uTime;
+  uniform float uActivity;
+  uniform float uSpeed;
+  uniform float uRadius;
+  varying float vGlow;
+
+  void main() {
+    float angle = aAngle + uTime * uSpeed * (1.0 + uActivity * 0.8);
+    float r = uRadius + 0.04 * sin(uTime * 2.0 + aSeed * 10.0);
+    vec3 pos = vec3(cos(angle) * r, 0.0, sin(angle) * r);
+    // Slight wobble out of plane
+    pos.y = sin(uTime * 1.4 + aSeed * 20.0) * (0.03 + uActivity * 0.06);
+
+    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (1.7 + 1.4 * uActivity) * (240.0 / -mv.z);
+
+    vGlow = 0.5 + 0.5 * sin(uTime * 1.8 + aSeed * 35.0);
+  }
+`;
+
+const RING_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  varying float vGlow;
+
+  void main() {
+    vec2 c = gl_PointCoord - 0.5;
+    float d = length(c);
+    if (d > 0.5) discard;
+    float fall = 1.0 - d * 2.0;
+    float a = fall * (0.45 + 0.40 * vGlow);
+    gl_FragColor = vec4(uColor * (0.85 + vGlow * 0.4), a);
+  }
+`;
+
+type RingParams = {
+  radius: number;
+  speed: number;
+  rotation: [number, number, number];
+  count: number;
+};
+
+function RingParticles({
+  baseUniforms,
+  params,
 }: {
-  color: THREE.Color;
-  activityRef: React.RefObject<number>;
+  baseUniforms: ShaderUniforms;
+  params: RingParams;
 }) {
-  const g1 = useRef<THREE.Mesh>(null);
-  const g2 = useRef<THREE.Mesh>(null);
-  const g3 = useRef<THREE.Mesh>(null);
-  useFrame((s) => {
-    const t = s.clock.elapsedTime;
-    const a = activityRef.current ?? 0;
-    const rotMult = 1 + a * 1.5;
-    if (g1.current) {
-      g1.current.rotation.x = t * 0.35 * rotMult;
-      g1.current.rotation.y = t * 0.15 * rotMult;
-      g1.current.scale.setScalar(1 + 0.04 * Math.sin(t * 1.6));
+  const buffers = useMemo(() => {
+    const angles = new Float32Array(params.count);
+    const seeds = new Float32Array(params.count);
+    const positions = new Float32Array(params.count * 3); // dummy, position computed in shader
+    for (let i = 0; i < params.count; i++) {
+      angles[i] = (i / params.count) * Math.PI * 2 + Math.random() * 0.05;
+      seeds[i] = Math.random();
     }
-    if (g2.current) {
-      g2.current.rotation.y = t * 0.45 * rotMult;
-      g2.current.rotation.z = t * 0.2 * rotMult;
-      g2.current.scale.setScalar(1 + 0.05 * Math.sin(t * 1.2 + 1.5));
-    }
-    if (g3.current) {
-      g3.current.rotation.z = t * 0.25 * rotMult;
-      g3.current.rotation.x = t * 0.3 * rotMult;
-      g3.current.scale.setScalar(1 + 0.05 * Math.sin(t * 0.9 + 3));
-    }
-  });
+    return { positions, angles, seeds };
+  }, [params.count]);
+
+  // Per-ring uniforms layered on top of base
+  const uniforms = useMemo(
+    () => ({
+      ...baseUniforms,
+      uSpeed: { value: params.speed },
+      uRadius: { value: params.radius },
+    }),
+    [baseUniforms, params.speed, params.radius],
+  );
+
   return (
-    <group>
-      <mesh ref={g1}>
-        <torusGeometry args={[1.25, 0.006, 6, 128]} />
-        <meshBasicMaterial color={color} transparent opacity={0.55} />
-      </mesh>
-      <mesh ref={g2} rotation={[Math.PI / 2.3, 0, 0.4]}>
-        <torusGeometry args={[1.45, 0.005, 6, 128]} />
-        <meshBasicMaterial color={color} transparent opacity={0.45} />
-      </mesh>
-      <mesh ref={g3} rotation={[0.3, Math.PI / 3, 0.8]}>
-        <torusGeometry args={[1.18, 0.005, 6, 128]} />
-        <meshBasicMaterial color={color} transparent opacity={0.5} />
-      </mesh>
+    <group rotation={params.rotation}>
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[buffers.positions, 3]} />
+          <bufferAttribute attach="attributes-aAngle" args={[buffers.angles, 1]} />
+          <bufferAttribute attach="attributes-aSeed" args={[buffers.seeds, 1]} />
+        </bufferGeometry>
+        <shaderMaterial
+          uniforms={uniforms}
+          vertexShader={RING_VERT}
+          fragmentShader={RING_FRAG}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
     </group>
   );
 }
 
 // ─────────────────────────────────────────────────────────────
-// Filament threads — line segments forming inner lattice
+// Drift + tendril particles — atmospheric dust + reaching motes
 // ─────────────────────────────────────────────────────────────
 
-function FilamentLattice({ color }: { color: THREE.Color }) {
-  const ref = useRef<THREE.LineSegments>(null);
-  const positions = useMemo(() => {
-    const N = 70; // 70 line segments = 140 vertices
-    const arr = new Float32Array(N * 2 * 3);
-    for (let i = 0; i < N; i++) {
-      // Pick two random points on/near unit sphere
-      for (let j = 0; j < 2; j++) {
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        const r = 0.95 + Math.random() * 0.25;
-        arr[(i * 2 + j) * 3] = r * Math.sin(phi) * Math.cos(theta);
-        arr[(i * 2 + j) * 3 + 1] = r * Math.cos(phi);
-        arr[(i * 2 + j) * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-      }
-    }
-    return arr;
-  }, []);
-  useFrame((s) => {
-    if (ref.current) {
-      ref.current.rotation.y += 0.001;
-      ref.current.rotation.x = Math.sin(s.clock.elapsedTime * 0.1) * 0.08;
-    }
-  });
-  return (
-    <lineSegments ref={ref}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
-      </bufferGeometry>
-      <lineBasicMaterial color={color} transparent opacity={0.28} />
-    </lineSegments>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// Sparse drifting particles — small dust, no halo blowout
-// ─────────────────────────────────────────────────────────────
-
-const PARTICLE_VERT = /* glsl */ `
+const DRIFT_VERT = /* glsl */ `
   attribute float aSeed;
   attribute float aRadius;
   attribute vec3 aDir;
@@ -187,21 +226,19 @@ const PARTICLE_VERT = /* glsl */ `
     ) * aRadius;
 
     float tendrilMag = length(aDir);
-    float reach = uActivity * tendrilMag * (1.2 + 0.5 * sin(uTime * 2.5 + aSeed * 20.0));
-    vec3 tendril = aDir * reach;
-
-    vec3 pos = idlePos + tendril;
+    float reach = uActivity * tendrilMag * (1.0 + 0.4 * sin(uTime * 2.5 + aSeed * 20.0));
+    vec3 pos = idlePos + aDir * reach;
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.4 + 1.8 * uActivity + tendrilMag * 0.6) * (240.0 / -mv.z);
+    gl_PointSize = (1.2 + 1.4 * uActivity + tendrilMag * 0.5) * (240.0 / -mv.z);
 
-    vGlow = 0.35 + 0.45 * sin(uTime * 1.5 + aSeed * 40.0);
+    vGlow = 0.3 + 0.45 * sin(uTime * 1.5 + aSeed * 40.0);
     vTendrilMix = tendrilMag;
   }
 `;
 
-const PARTICLE_FRAG = /* glsl */ `
+const DRIFT_FRAG = /* glsl */ `
   uniform vec3 uColor;
   varying float vGlow;
   varying float vTendrilMix;
@@ -211,30 +248,28 @@ const PARTICLE_FRAG = /* glsl */ `
     float d = length(c);
     if (d > 0.5) discard;
     float fall = 1.0 - d * 2.0;
-    float a = fall * (0.20 + 0.35 * vGlow + 0.25 * vTendrilMix);
-    gl_FragColor = vec4(uColor * (0.8 + vGlow * 0.4), a);
+    float a = fall * (0.18 + 0.30 * vGlow + 0.25 * vTendrilMix);
+    gl_FragColor = vec4(uColor * (0.75 + vGlow * 0.4), a);
   }
 `;
 
-const PARTICLE_COUNT = 600;
-const TENDRIL_RATIO = 0.18;
-
-function useParticleBuffers() {
-  return useMemo(() => {
-    const positions = new Float32Array(PARTICLE_COUNT * 3);
-    const seeds = new Float32Array(PARTICLE_COUNT);
-    const radii = new Float32Array(PARTICLE_COUNT);
-    const dirs = new Float32Array(PARTICLE_COUNT * 3);
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
+function DriftParticles({ uniforms }: { uniforms: ShaderUniforms }) {
+  const buffers = useMemo(() => {
+    const COUNT = 700;
+    const TENDRIL_RATIO = 0.2;
+    const positions = new Float32Array(COUNT * 3);
+    const seeds = new Float32Array(COUNT);
+    const radii = new Float32Array(COUNT);
+    const dirs = new Float32Array(COUNT * 3);
+    for (let i = 0; i < COUNT; i++) {
       seeds[i] = Math.random();
-      radii[i] = 1.7 + Math.random() * 0.8;
-      const isTendril = Math.random() < TENDRIL_RATIO;
-      if (isTendril) {
+      radii[i] = 1.7 + Math.random() * 0.9;
+      if (Math.random() < TENDRIL_RATIO) {
         const u = Math.random();
         const v = Math.random();
         const theta = 2 * Math.PI * u;
         const phi = Math.acos(2 * v - 1);
-        const mag = 0.5 + Math.random() * 1.0;
+        const mag = 0.5 + Math.random() * 1.1;
         dirs[i * 3] = Math.sin(phi) * Math.cos(theta) * mag;
         dirs[i * 3 + 1] = Math.cos(phi) * mag;
         dirs[i * 3 + 2] = Math.sin(phi) * Math.sin(theta) * mag;
@@ -242,18 +277,43 @@ function useParticleBuffers() {
     }
     return { positions, seeds, radii, dirs };
   }, []);
+  return (
+    <points>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[buffers.positions, 3]} />
+        <bufferAttribute attach="attributes-aSeed" args={[buffers.seeds, 1]} />
+        <bufferAttribute attach="attributes-aRadius" args={[buffers.radii, 1]} />
+        <bufferAttribute attach="attributes-aDir" args={[buffers.dirs, 3]} />
+      </bufferGeometry>
+      <shaderMaterial
+        uniforms={uniforms}
+        vertexShader={DRIFT_VERT}
+        fragmentShader={DRIFT_FRAG}
+        transparent
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </points>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
-// Composite NovaOrb
+// Composite — three uniform groups so each layer can have its
+// own shader-specific extras while sharing time/activity/color.
 // ─────────────────────────────────────────────────────────────
+
+type ShaderUniforms = {
+  uTime: { value: number };
+  uActivity: { value: number };
+  uColor: { value: THREE.Color };
+};
 
 export function NovaOrb({
   activeSpeaker,
 }: {
   activeSpeaker: SpeakerKey | null;
 }) {
-  const coreUniforms = useMemo(
+  const sharedUniforms: ShaderUniforms = useMemo(
     () => ({
       uTime: { value: 0 },
       uActivity: { value: 0 },
@@ -262,72 +322,54 @@ export function NovaOrb({
     [],
   );
 
-  const particleUniforms = useMemo(
-    () => ({
-      uTime: { value: 0 },
-      uActivity: { value: 0 },
-      uColor: { value: new THREE.Color(...COLORS.jarvis) },
-    }),
-    [],
-  );
-
-  // Shared color used by ring + filament basic materials (mutated in place)
-  const liveColor = useMemo(() => new THREE.Color(...COLORS.jarvis), []);
   const targetCol = useRef(new THREE.Color(...COLORS.jarvis));
-  const activityRef = useRef(0);
 
   useEffect(() => {
     const key: SpeakerKey = activeSpeaker ?? "jarvis";
     targetCol.current.setRGB(...COLORS[key]);
   }, [activeSpeaker]);
 
+  const groupRef = useRef<THREE.Group>(null);
+
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     const targetActivity = activeSpeaker ? 1 : 0;
-
-    coreUniforms.uTime.value = t;
-    coreUniforms.uActivity.value +=
-      (targetActivity - coreUniforms.uActivity.value) * 0.06;
-    coreUniforms.uColor.value.lerp(targetCol.current, 0.04);
-
-    particleUniforms.uTime.value = t;
-    particleUniforms.uActivity.value +=
-      (targetActivity - particleUniforms.uActivity.value) * 0.06;
-    particleUniforms.uColor.value.lerp(targetCol.current, 0.04);
-
-    liveColor.lerp(targetCol.current, 0.04);
-    activityRef.current = coreUniforms.uActivity.value;
+    sharedUniforms.uTime.value = t;
+    sharedUniforms.uActivity.value +=
+      (targetActivity - sharedUniforms.uActivity.value) * 0.06;
+    sharedUniforms.uColor.value.lerp(targetCol.current, 0.04);
+    if (groupRef.current) {
+      groupRef.current.rotation.y += 0.0025;
+      groupRef.current.rotation.x = Math.sin(t * 0.2) * 0.12;
+    }
   });
 
-  const buffers = useParticleBuffers();
-
   return (
-    <group>
-      <CoreLattice uniforms={coreUniforms} />
-      <FilamentLattice color={liveColor} />
-      <GyroRings color={liveColor} activityRef={activityRef} />
-      <points>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[buffers.positions, 3]}
-          />
-          <bufferAttribute attach="attributes-aSeed" args={[buffers.seeds, 1]} />
-          <bufferAttribute
-            attach="attributes-aRadius"
-            args={[buffers.radii, 1]}
-          />
-          <bufferAttribute attach="attributes-aDir" args={[buffers.dirs, 3]} />
-        </bufferGeometry>
-        <shaderMaterial
-          uniforms={particleUniforms}
-          vertexShader={PARTICLE_VERT}
-          fragmentShader={PARTICLE_FRAG}
-          transparent
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-        />
-      </points>
+    <group ref={groupRef}>
+      <ShellParticles uniforms={sharedUniforms} />
+      <RingParticles
+        baseUniforms={sharedUniforms}
+        params={{ radius: 1.3, speed: 0.35, rotation: [0, 0, 0], count: 260 }}
+      />
+      <RingParticles
+        baseUniforms={sharedUniforms}
+        params={{
+          radius: 1.45,
+          speed: 0.22,
+          rotation: [Math.PI / 2.3, 0, 0.4],
+          count: 260,
+        }}
+      />
+      <RingParticles
+        baseUniforms={sharedUniforms}
+        params={{
+          radius: 1.18,
+          speed: 0.45,
+          rotation: [0.3, Math.PI / 3, 0.8],
+          count: 220,
+        }}
+      />
+      <DriftParticles uniforms={sharedUniforms} />
     </group>
   );
 }

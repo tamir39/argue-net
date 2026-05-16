@@ -21,13 +21,78 @@ Khi cần ý kiến đa chiều, NOVA triệu hồi nhóm tranh luận gồm:
 Sau khi nghe SOL, UMBRA, POLARIS, bạn (NOVA) tổng hợp và đưa khuyến nghị
 cuối kèm một bước hành động cụ thể."""
 
-CLASSIFIER_PROMPT = """Người dùng vừa nói: "{msg}"
+CLASSIFIER_PROMPT = """Câu của user: "{msg}"
 
-Câu này có cần nhiều quan điểm tranh luận không?
-- DEBATE nếu là câu hỏi mở: có nên..., X hay Y, đánh giá lựa chọn, ưu/nhược điểm, nên/không nên.
-- DIRECT cho câu thông tin đơn giản, chào hỏi, yêu cầu cụ thể, code, tính toán, dịch.
+Mặc định: DIRECT. CHỈ trả lời DEBATE khi câu rõ ràng yêu cầu nhiều
+quan điểm đối lập — không phải khi nó chỉ là câu hỏi có chữ "nên".
+
+Ví dụ DEBATE (cần tranh luận đa chiều):
+- "Tôi nên dùng Postgres hay SQLite cho dự án nhỏ?"
+- "Có nên học AI bây giờ không?"
+- "So sánh microservice vs monolith."
+- "Nên đầu tư cổ phiếu hay vàng?"
+- "Cho tôi pros/cons của remote work."
+
+Ví dụ DIRECT (Nova tự trả lời, KHÔNG triệu hồi đội):
+- "Chào, alo, hi, cảm ơn, tạm biệt" — chào hỏi
+- "2+2 bằng mấy?" — info đơn giản
+- "Dịch 'hello' sang tiếng Việt" — yêu cầu cụ thể
+- "Giải thích React Hooks." — mô tả/giải thích
+- "Viết function Python tính giai thừa." — code
+- "Hôm nay thứ mấy?" — info
+- "Tôi muốn đi du lịch Nhật" — chia sẻ ý định
+- "Bạn là ai?" — meta
+- "Kể chuyện cười" — giải trí
 
 Trả lời CHỈ 1 từ: DEBATE hoặc DIRECT."""
+
+_DEBATE_KEYWORDS = (
+    " hay ",
+    " hoặc ",
+    " so sánh",
+    " pros",
+    " cons",
+    " ưu nhược",
+    " ưu điểm",
+    " nhược điểm",
+    " tranh luận",
+    " nên không",
+    " có nên",
+    " đánh giá",
+    " versus",
+    " vs ",
+)
+_DIRECT_PREFIXES = (
+    "chào",
+    "alo",
+    "hi ",
+    "hello",
+    "hey",
+    "cảm ơn",
+    "thanks",
+    "thank you",
+    "tạm biệt",
+    "bye",
+)
+
+
+def _heuristic_should_debate(msg: str) -> bool | None:
+    """Pre-filter so we skip the LLM call for obvious cases.
+
+    Returns True/False when confident, None when ambiguous (then call LLM).
+    """
+    stripped = msg.strip().lower()
+    if not stripped:
+        return False
+    words = stripped.split()
+    if len(words) < 6:
+        return False
+    if any(stripped.startswith(p) for p in _DIRECT_PREFIXES):
+        return False
+    padded = " " + stripped + " "
+    if not any(kw in padded for kw in _DEBATE_KEYWORDS):
+        return False
+    return None
 
 
 class Nova:
@@ -68,6 +133,9 @@ class Nova:
         }
 
     async def _should_debate(self, msg: str) -> bool:
+        heuristic = _heuristic_should_debate(msg)
+        if heuristic is not None:
+            return heuristic
         try:
             verdict = await complete(
                 self.agent.model,
