@@ -31,6 +31,43 @@ def print_info(text: str) -> None:
     sys.stdout.flush()
 
 
+def print_help() -> None:
+    print(
+        "\nLệnh:\n"
+        "  exit                            — thoát\n"
+        "  /reset                          — xóa ngữ cảnh hội thoại\n"
+        "  /model                          — xem model hiện tại của Nova/Sol/Umbra/Polaris\n"
+        "  /model <tên-model>              — đổi tất cả agents sang model mới\n"
+        "  /model <vai> <tên-model>        — đổi 1 agent (vai = nova|sol|umbra|polaris)\n"
+        "\nVí dụ model: gemini/gemini-2.5-flash, gemini/gemini-2.0-flash-lite,\n"
+        "             gemini/gemini-flash-latest, gemini/gemini-2.5-pro\n",
+        flush=True,
+    )
+
+
+def handle_model_command(nova: "Nova", cmd: str) -> None:
+    parts = cmd.split()
+    if len(parts) == 1:
+        for name, model in nova.list_models().items():
+            print(f"  {name:8s} → {model}")
+        return
+    if len(parts) == 2:
+        try:
+            nova.set_model("all", parts[1])
+            print(f"(Đổi tất cả sang {parts[1]})")
+        except ValueError as e:
+            print(f"(Lỗi: {e})")
+        return
+    if len(parts) == 3:
+        try:
+            nova.set_model(parts[1], parts[2])
+            print(f"({parts[1]} → {parts[2]})")
+        except ValueError as e:
+            print(f"(Lỗi: {e})")
+        return
+    print("(Cú pháp: /model | /model <model> | /model <vai> <model>)")
+
+
 async def chat_loop(nova: Nova) -> None:
     while True:
         sys.stdout.write("\nBạn: ")
@@ -50,6 +87,12 @@ async def chat_loop(nova: Nova) -> None:
         if stripped.lower() == "/reset":
             nova.reset()
             print("(Đã xóa ngữ cảnh.)")
+            continue
+        if stripped.lower().startswith("/model"):
+            handle_model_command(nova, stripped)
+            continue
+        if stripped.lower() in {"/help", "?"}:
+            print_help()
             continue
 
         last_speaker: str | None = None
@@ -80,7 +123,8 @@ async def main() -> int:
 
     print(
         "Nova đã sẵn sàng. Câu hỏi mở ('có nên ...', 'X hay Y') sẽ kích hoạt "
-        "Sol / Umbra / Polaris. Gõ 'exit' để thoát, '/reset' để xóa ngữ cảnh.",
+        "Sol / Umbra / Polaris.\n"
+        "Lệnh: exit | /reset | /model | /help",
         flush=True,
     )
 

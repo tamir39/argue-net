@@ -17,10 +17,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
 
-    jarvis_model: str = Field(default="gemini/gemini-2.5-flash-lite", alias="JARVIS_MODEL")
-    pro_agent_model: str = Field(default="gemini/gemini-2.5-flash-lite", alias="PRO_AGENT_MODEL")
-    con_agent_model: str = Field(default="gemini/gemini-2.5-flash-lite", alias="CON_AGENT_MODEL")
-    mediator_model: str = Field(default="gemini/gemini-2.5-flash-lite", alias="MEDIATOR_MODEL")
+    jarvis_model: str = Field(default="gemini/gemini-2.5-flash", alias="JARVIS_MODEL")
+    pro_agent_model: str = Field(default="gemini/gemini-2.5-flash", alias="PRO_AGENT_MODEL")
+    con_agent_model: str = Field(default="gemini/gemini-2.5-flash", alias="CON_AGENT_MODEL")
+    mediator_model: str = Field(default="gemini/gemini-2.5-flash", alias="MEDIATOR_MODEL")
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

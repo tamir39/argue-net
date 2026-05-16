@@ -41,6 +41,32 @@ class Nova:
     def reset(self) -> None:
         self.agent.reset()
 
+    def set_model(self, role: str, model: str) -> None:
+        role = role.lower()
+        if role in {"all", "*"}:
+            self.agent.model = model
+            settings.pro_agent_model = model
+            settings.con_agent_model = model
+            settings.mediator_model = model
+        elif role in {"nova", "jarvis"}:
+            self.agent.model = model
+        elif role in {"sol", "pro"}:
+            settings.pro_agent_model = model
+        elif role in {"umbra", "con"}:
+            settings.con_agent_model = model
+        elif role in {"polaris", "mediator"}:
+            settings.mediator_model = model
+        else:
+            raise ValueError(f"Vai trò không hợp lệ: {role}")
+
+    def list_models(self) -> dict[str, str]:
+        return {
+            "Nova": self.agent.model,
+            "Sol": settings.pro_agent_model,
+            "Umbra": settings.con_agent_model,
+            "Polaris": settings.mediator_model,
+        }
+
     async def _should_debate(self, msg: str) -> bool:
         try:
             verdict = await complete(
