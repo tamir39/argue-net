@@ -1,12 +1,12 @@
 "use client";
 
-import { ContactShadows, Stars } from "@react-three/drei";
+import { Stars } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import { Suspense } from "react";
 import * as THREE from "three";
 
-import { Avatar } from "./Avatar";
+import { NovaOrb } from "./NovaOrb";
 
 type SpeakerKey = "jarvis" | "pro" | "con" | "mediator";
 
@@ -33,29 +33,21 @@ export function NovaScene({ activeSpeaker }: { activeSpeaker: SpeakerKey | null 
 
       <Suspense fallback={null}>
         <Stars
-          radius={40}
-          depth={30}
-          count={2200}
+          radius={50}
+          depth={40}
+          count={2800}
           factor={3}
           fade
-          speed={0.4}
+          speed={0.35}
         />
-        <Avatar activeSpeaker={activeSpeaker} />
-        <ContactShadows
-          position={[0, -1.1, 0]}
-          opacity={0.45}
-          blur={3}
-          far={3}
-          resolution={512}
-          color="#001a30"
-        />
+        <NovaOrb activeSpeaker={activeSpeaker} />
       </Suspense>
 
       <EffectComposer>
         <Bloom
-          intensity={0.9}
-          luminanceThreshold={0.2}
-          luminanceSmoothing={0.4}
+          intensity={1.2}
+          luminanceThreshold={0.15}
+          luminanceSmoothing={0.5}
           mipmapBlur
         />
       </EffectComposer>
