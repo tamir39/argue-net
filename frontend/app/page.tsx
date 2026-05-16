@@ -9,9 +9,9 @@ import {
   useSpeechSynthesis,
 } from "./_hooks/voice";
 
-const OrbCanvas = dynamic(
-  () => import("./_components/OrbCanvas").then((m) => m.OrbCanvas),
-  { ssr: false, loading: () => <div className="h-32 sm:h-40" /> },
+const NovaScene = dynamic(
+  () => import("./_components/NovaScene").then((m) => m.NovaScene),
+  { ssr: false, loading: () => null },
 );
 
 type OrbSpeaker = "jarvis" | "pro" | "con" | "mediator";
@@ -287,148 +287,157 @@ export default function ChatPage() {
   }, [tts]);
 
   return (
-    <main className="flex-1 flex flex-col items-center px-4">
-      <div className="w-full max-w-3xl flex flex-col h-screen py-6">
-        <header className="flex items-center justify-between pb-4 border-b border-zinc-800">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">ArgueNet</h1>
-            <p className="text-xs text-zinc-500">
-              <span className="text-cyan-300">Nova</span>
-              {" · "}
-              <span className="text-emerald-300">Sol</span>
-              {" · "}
-              <span className="text-rose-300">Umbra</span>
-              {" · "}
-              <span className="text-amber-300">Polaris</span>
-            </p>
+    <>
+      <NovaScene activeSpeaker={activeSpeaker} />
+
+      <div className="fixed inset-0 z-10 flex flex-col pointer-events-none">
+        {/* TOP BAR */}
+        <header className="pointer-events-auto h-14 px-6 flex items-center justify-between border-b border-cyan-900/40 bg-zinc-950/35 backdrop-blur-md">
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-sm font-semibold tracking-[0.3em] text-cyan-200">
+              ARGUENET
+            </h1>
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500">
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full mr-2 align-middle ${
+                  activeSpeaker ? "bg-cyan-300 animate-pulse" : "bg-zinc-600"
+                }`}
+              />
+              {activeSpeaker ? SPEAKER_META[activeSpeaker].label : "idle"}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             {mounted && (
               <>
-            {micDevices.devices.length > 1 && (
-              <select
-                value={micDevices.selected}
-                onChange={(e) => micDevices.setSelected(e.target.value)}
-                disabled={busy || recorder.recording || micBusy}
-                title="Chọn microphone"
-                className="text-xs bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1.5 max-w-[180px] truncate"
-              >
-                <option value="">Mic mặc định</option>
-                {micDevices.devices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || `Mic ${d.deviceId.slice(0, 6)}`}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button
-              onClick={recorder.recording ? stopMicAndTranscribe : startMic}
-              disabled={busy || micBusy || !recorder.supported}
-              title={
-                !recorder.supported
-                  ? "Browser không hỗ trợ MediaRecorder"
-                  : micBusy
-                    ? "Đang chuyển giọng nói thành chữ…"
+                {micDevices.devices.length > 1 && (
+                  <select
+                    value={micDevices.selected}
+                    onChange={(e) => micDevices.setSelected(e.target.value)}
+                    disabled={busy || recorder.recording || micBusy}
+                    title="Chọn microphone"
+                    className="text-xs bg-zinc-900/60 border border-cyan-900/40 rounded-md px-2 py-1.5 max-w-[160px] truncate"
+                  >
+                    <option value="">Mic mặc định</option>
+                    {micDevices.devices.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Mic ${d.deviceId.slice(0, 6)}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  onClick={
+                    recorder.recording ? stopMicAndTranscribe : startMic
+                  }
+                  disabled={busy || micBusy || !recorder.supported}
+                  title={
+                    !recorder.supported
+                      ? "Browser không hỗ trợ MediaRecorder"
+                      : micBusy
+                        ? "Đang chuyển giọng nói thành chữ…"
+                        : recorder.recording
+                          ? "Đang ghi — bấm để dừng và gửi"
+                          : "Bấm để ghi giọng nói"
+                  }
+                  className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                    recorder.recording
+                      ? "border-rose-500 bg-rose-500/15 text-rose-200 animate-pulse"
+                      : "border-cyan-900/40 hover:bg-zinc-800 text-zinc-200"
+                  }`}
+                >
+                  {micBusy
+                    ? "⏳ Nhận…"
                     : recorder.recording
-                      ? "Đang ghi — bấm để dừng và gửi"
-                      : "Bấm để ghi giọng nói"
-              }
-              className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                recorder.recording
-                  ? "border-rose-500 bg-rose-500/15 text-rose-200 animate-pulse"
-                  : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
-              }`}
-            >
-              {micBusy
-                ? "⏳ Nhận…"
-                : recorder.recording
-                  ? "● Đang ghi"
-                  : "🎤 Mic"}
-            </button>
-            <button
-              onClick={toggleVoiceOut}
-              disabled={!tts.supported}
-              title={
-                !tts.supported
-                  ? "Browser không hỗ trợ speechSynthesis"
-                  : voiceOutOn
-                    ? "Tắt giọng nói"
-                    : "Bật giọng nói"
-              }
-              className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                voiceOutOn
-                  ? "border-cyan-500 bg-cyan-500/15 text-cyan-200"
-                  : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
-              }`}
-            >
-              {voiceOutOn ? "🔊 Loa" : "🔇 Loa"}
-            </button>
-            <button
-              onClick={reset}
-              disabled={busy || messages.length === 0}
-              className="text-xs px-3 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Reset
-            </button>
+                      ? "● Đang ghi"
+                      : "🎤 Mic"}
+                </button>
+                <button
+                  onClick={toggleVoiceOut}
+                  disabled={!tts.supported}
+                  title={
+                    !tts.supported
+                      ? "Browser không hỗ trợ speechSynthesis"
+                      : voiceOutOn
+                        ? "Tắt giọng nói"
+                        : "Bật giọng nói"
+                  }
+                  className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                    voiceOutOn
+                      ? "border-cyan-500 bg-cyan-500/15 text-cyan-200"
+                      : "border-cyan-900/40 hover:bg-zinc-800 text-zinc-200"
+                  }`}
+                >
+                  {voiceOutOn ? "🔊 Loa" : "🔇 Loa"}
+                </button>
+                <button
+                  onClick={reset}
+                  disabled={busy || messages.length === 0}
+                  className="text-xs px-3 py-1.5 rounded-md border border-cyan-900/40 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Reset
+                </button>
               </>
             )}
           </div>
         </header>
 
-        <OrbCanvas activeSpeaker={activeSpeaker} />
-
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto py-4 space-y-3"
-        >
-          {messages.length === 0 && !micError && (
-            <div className="text-zinc-500 text-sm text-center py-16 leading-relaxed">
-              Hỏi gì đó.
-              <br />
-              <span className="text-xs">
-                Câu hỏi mở (vd. &quot;nên dùng X hay Y?&quot;) sẽ kích hoạt nhóm tranh luận.
-              </span>
-            </div>
-          )}
+        {/* MIDDLE: avatar shows through, chat card bottom-anchored */}
+        <div className="flex-1 flex flex-col justify-end items-center px-4 pb-3">
           {micError && (
-            <div className="text-rose-300 text-xs text-center py-2 px-3 border border-rose-900/50 rounded-md bg-rose-950/30">
+            <div className="mb-2 pointer-events-auto text-rose-300 text-xs text-center py-2 px-3 border border-rose-900/50 rounded-md bg-rose-950/40 backdrop-blur-md max-w-2xl">
               🎤 {micError}
             </div>
           )}
-          {messages.map((m, i) => (
-            <Bubble key={i} message={m} />
-          ))}
-          {busy && messages[messages.length - 1]?.speaker === "user" && (
-            <div className="text-xs text-zinc-500 italic px-1">đang nghĩ…</div>
+
+          {messages.length > 0 && (
+            <div className="pointer-events-auto w-full max-w-3xl rounded-lg border border-cyan-900/30 bg-zinc-950/45 backdrop-blur-md shadow-[0_0_40px_-15px_rgba(34,211,238,0.35)]">
+              <div
+                ref={scrollRef}
+                className="max-h-56 overflow-y-auto px-4 py-3 space-y-3"
+              >
+                {messages.map((m, i) => (
+                  <Bubble key={i} message={m} />
+                ))}
+                {busy &&
+                  messages[messages.length - 1]?.speaker === "user" && (
+                    <div className="text-xs text-zinc-500 italic px-1">
+                      đang nghĩ…
+                    </div>
+                  )}
+              </div>
+            </div>
           )}
         </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-          className="pt-4 border-t border-zinc-800 flex gap-2"
-        >
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={busy}
-            placeholder={busy ? "Đang trả lời…" : "Bạn…"}
-            autoFocus
-            className="flex-1 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 outline-none focus:border-cyan-500 disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={busy || !input.trim()}
-            className="px-4 py-2 rounded-md bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-medium"
+        {/* BOTTOM BAR */}
+        <footer className="pointer-events-auto px-6 py-3 border-t border-cyan-900/40 bg-zinc-950/40 backdrop-blur-md">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
+            className="w-full max-w-3xl mx-auto flex gap-2"
           >
-            Gửi
-          </button>
-        </form>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={busy}
+              placeholder={busy ? "Đang trả lời…" : "Hỏi Nova…"}
+              autoFocus
+              className="flex-1 bg-zinc-900/70 border border-cyan-900/40 rounded-md px-3 py-2 outline-none focus:border-cyan-400 disabled:opacity-50 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={busy || !input.trim()}
+              className="px-5 py-2 rounded-md bg-cyan-600/90 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-medium"
+            >
+              Gửi
+            </button>
+          </form>
+        </footer>
       </div>
-    </main>
+    </>
   );
 }
 
