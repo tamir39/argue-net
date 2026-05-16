@@ -24,31 +24,31 @@ const SHELL_VERT = /* glsl */ `
   uniform float uActivity;
   varying float vGlow;
 
-  float n3(vec3 p) {
-    return sin(p.x * 1.7 + uTime * 0.5) * cos(p.y * 1.3 - uTime * 0.4)
-         + sin(p.z * 2.0 + uTime * 0.6) * 0.5;
+  // Idle scales the slow time channel so the orb barely moves at rest.
+  float n3(vec3 p, float speed) {
+    return sin(p.x * 1.7 + uTime * 0.5 * speed) * cos(p.y * 1.3 - uTime * 0.4 * speed)
+         + sin(p.z * 2.0 + uTime * 0.6 * speed) * 0.5;
   }
 
   void main() {
-    // Two-octave noise displacement, amplitude scales with activity
-    float n1 = n3(position * 1.2);
-    float n2 = n3(position * 2.6 + vec3(11.0, 3.0, 7.0));
+    float motion = 0.15 + 0.85 * uActivity;
+    float n1 = n3(position * 1.2, motion);
+    float n2 = n3(position * 2.6 + vec3(11.0, 3.0, 7.0), motion);
     float disp = n1 * 0.6 + n2 * 0.35;
-    float amp = 0.06 + 0.22 * uActivity;
+    float amp = 0.015 + 0.22 * uActivity;
     vec3 pos = position * (1.0 + disp * amp);
 
-    // Tiny per-particle jitter so it never freezes
     pos += vec3(
-      sin(uTime * 1.0 + aSeed * 53.0),
-      cos(uTime * 1.3 + aSeed * 31.0),
-      sin(uTime * 0.7 + aSeed * 71.0)
-    ) * (0.012 + 0.02 * uActivity);
+      sin(uTime * 1.0 * motion + aSeed * 53.0),
+      cos(uTime * 1.3 * motion + aSeed * 31.0),
+      sin(uTime * 0.7 * motion + aSeed * 71.0)
+    ) * (0.003 + 0.022 * uActivity);
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.6 + 1.0 * uActivity) * (240.0 / -mv.z);
+    gl_PointSize = (0.7 + 0.4 * uActivity + aSeed * 0.5) * (32.0 / -mv.z);
 
-    vGlow = 0.35 + 0.5 * sin(uTime * 1.4 + aSeed * 40.0);
+    vGlow = 0.3 + 0.45 * sin(uTime * 1.4 + aSeed * 40.0);
   }
 `;
 
@@ -60,15 +60,16 @@ const SHELL_FRAG = /* glsl */ `
     vec2 c = gl_PointCoord - 0.5;
     float d = length(c);
     if (d > 0.5) discard;
-    float fall = 1.0 - d * 2.0;
-    float a = fall * (0.35 + 0.4 * vGlow);
-    gl_FragColor = vec4(uColor * (0.7 + vGlow * 0.4), a);
+    float fall = 1.0 - smoothstep(0.0, 0.5, d);
+    fall = pow(fall, 2.5);
+    float a = fall * (0.20 + 0.25 * vGlow);
+    gl_FragColor = vec4(uColor * (0.85 + vGlow * 0.5), a);
   }
 `;
 
 function ShellParticles({ uniforms }: { uniforms: ShaderUniforms }) {
   const buffers = useMemo(() => {
-    const COUNT = 3000;
+    const COUNT = 5000;
     const positions = new Float32Array(COUNT * 3);
     const seeds = new Float32Array(COUNT);
     for (let i = 0; i < COUNT; i++) {
@@ -118,17 +119,17 @@ const RING_VERT = /* glsl */ `
   varying float vGlow;
 
   void main() {
-    float angle = aAngle + uTime * uSpeed * (1.0 + uActivity * 0.8);
-    float r = uRadius + 0.04 * sin(uTime * 2.0 + aSeed * 10.0);
+    float motion = 0.12 + 1.4 * uActivity;
+    float angle = aAngle + uTime * uSpeed * motion;
+    float r = uRadius + 0.02 * sin(uTime * 2.0 * motion + aSeed * 10.0);
     vec3 pos = vec3(cos(angle) * r, 0.0, sin(angle) * r);
-    // Slight wobble out of plane
-    pos.y = sin(uTime * 1.4 + aSeed * 20.0) * (0.03 + uActivity * 0.06);
+    pos.y = sin(uTime * 1.4 * motion + aSeed * 20.0) * (0.012 + uActivity * 0.06);
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.7 + 1.4 * uActivity) * (240.0 / -mv.z);
+    gl_PointSize = (0.9 + 0.6 * uActivity + aSeed * 0.4) * (32.0 / -mv.z);
 
-    vGlow = 0.5 + 0.5 * sin(uTime * 1.8 + aSeed * 35.0);
+    vGlow = 0.4 + 0.5 * sin(uTime * 1.8 * motion + aSeed * 35.0);
   }
 `;
 
@@ -140,9 +141,10 @@ const RING_FRAG = /* glsl */ `
     vec2 c = gl_PointCoord - 0.5;
     float d = length(c);
     if (d > 0.5) discard;
-    float fall = 1.0 - d * 2.0;
-    float a = fall * (0.45 + 0.40 * vGlow);
-    gl_FragColor = vec4(uColor * (0.85 + vGlow * 0.4), a);
+    float fall = 1.0 - smoothstep(0.0, 0.5, d);
+    fall = pow(fall, 2.5);
+    float a = fall * (0.30 + 0.30 * vGlow);
+    gl_FragColor = vec4(uColor * (0.95 + vGlow * 0.4), a);
   }
 `;
 
@@ -216,9 +218,10 @@ const DRIFT_VERT = /* glsl */ `
   varying float vTendrilMix;
 
   void main() {
-    float t = uTime * 0.28 + aSeed * 30.0;
+    float motion = 0.10 + 1.0 * uActivity;
+    float t = uTime * 0.28 * motion + aSeed * 30.0;
     float theta = t * (0.6 + aSeed * 0.5) + aSeed * 6.2831;
-    float phi = aSeed * 3.14159 + sin(uTime * 0.15 + aSeed * 5.0) * 0.5;
+    float phi = aSeed * 3.14159 + sin(uTime * 0.15 * motion + aSeed * 5.0) * 0.5;
     vec3 idlePos = vec3(
       cos(theta) * sin(phi),
       cos(phi),
@@ -231,9 +234,9 @@ const DRIFT_VERT = /* glsl */ `
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.2 + 1.4 * uActivity + tendrilMag * 0.5) * (240.0 / -mv.z);
+    gl_PointSize = (0.6 + 0.8 * uActivity + tendrilMag * 0.3) * (32.0 / -mv.z);
 
-    vGlow = 0.3 + 0.45 * sin(uTime * 1.5 + aSeed * 40.0);
+    vGlow = 0.25 + 0.4 * sin(uTime * 1.5 * motion + aSeed * 40.0);
     vTendrilMix = tendrilMag;
   }
 `;
@@ -247,15 +250,16 @@ const DRIFT_FRAG = /* glsl */ `
     vec2 c = gl_PointCoord - 0.5;
     float d = length(c);
     if (d > 0.5) discard;
-    float fall = 1.0 - d * 2.0;
-    float a = fall * (0.18 + 0.30 * vGlow + 0.25 * vTendrilMix);
+    float fall = 1.0 - smoothstep(0.0, 0.5, d);
+    fall = pow(fall, 2.5);
+    float a = fall * (0.10 + 0.18 * vGlow + 0.18 * vTendrilMix);
     gl_FragColor = vec4(uColor * (0.75 + vGlow * 0.4), a);
   }
 `;
 
 function DriftParticles({ uniforms }: { uniforms: ShaderUniforms }) {
   const buffers = useMemo(() => {
-    const COUNT = 700;
+    const COUNT = 1200;
     const TENDRIL_RATIO = 0.2;
     const positions = new Float32Array(COUNT * 3);
     const seeds = new Float32Array(COUNT);
@@ -339,8 +343,9 @@ export function NovaOrb({
       (targetActivity - sharedUniforms.uActivity.value) * 0.06;
     sharedUniforms.uColor.value.lerp(targetCol.current, 0.04);
     if (groupRef.current) {
-      groupRef.current.rotation.y += 0.0025;
-      groupRef.current.rotation.x = Math.sin(t * 0.2) * 0.12;
+      const a = sharedUniforms.uActivity.value;
+      groupRef.current.rotation.y += 0.0004 + 0.003 * a;
+      groupRef.current.rotation.x = Math.sin(t * (0.05 + 0.25 * a)) * (0.03 + 0.10 * a);
     }
   });
 
@@ -349,7 +354,7 @@ export function NovaOrb({
       <ShellParticles uniforms={sharedUniforms} />
       <RingParticles
         baseUniforms={sharedUniforms}
-        params={{ radius: 1.3, speed: 0.35, rotation: [0, 0, 0], count: 260 }}
+        params={{ radius: 1.3, speed: 0.35, rotation: [0, 0, 0], count: 380 }}
       />
       <RingParticles
         baseUniforms={sharedUniforms}
@@ -357,7 +362,7 @@ export function NovaOrb({
           radius: 1.45,
           speed: 0.22,
           rotation: [Math.PI / 2.3, 0, 0.4],
-          count: 260,
+          count: 380,
         }}
       />
       <RingParticles
@@ -366,7 +371,7 @@ export function NovaOrb({
           radius: 1.18,
           speed: 0.45,
           rotation: [0.3, Math.PI / 3, 0.8],
-          count: 220,
+          count: 320,
         }}
       />
       <DriftParticles uniforms={sharedUniforms} />
