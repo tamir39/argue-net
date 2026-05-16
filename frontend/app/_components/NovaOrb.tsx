@@ -20,29 +20,31 @@ const COLORS: Record<SpeakerKey, [number, number, number]> = {
 
 const SHELL_VERT = /* glsl */ `
   attribute float aSeed;
+  attribute vec3 aDir;
+  attribute float aPhase;
   uniform float uTime;
   uniform float uActivity;
   varying float vGlow;
 
-  // Idle scales the slow time channel so the orb barely moves at rest.
-  float n3(vec3 p, float speed) {
-    return sin(p.x * 1.7 + uTime * 0.5 * speed) * cos(p.y * 1.3 - uTime * 0.4 * speed)
-         + sin(p.z * 2.0 + uTime * 0.6 * speed) * 0.5;
-  }
-
   void main() {
     float motion = 0.15 + 0.85 * uActivity;
-    float n1 = n3(position * 1.2, motion);
-    float n2 = n3(position * 2.6 + vec3(11.0, 3.0, 7.0), motion);
-    float disp = n1 * 0.6 + n2 * 0.35;
-    float amp = 0.015 + 0.22 * uActivity;
-    vec3 pos = position * (1.0 + disp * amp);
+    float t = uTime + aPhase;
 
-    pos += vec3(
-      sin(uTime * 1.0 * motion + aSeed * 53.0),
-      cos(uTime * 1.3 * motion + aSeed * 31.0),
-      sin(uTime * 0.7 * motion + aSeed * 71.0)
-    ) * (0.003 + 0.022 * uActivity);
+    // Very gentle radial breath (kept small so it doesn't feel like
+    // the whole sphere is pulsing as one).
+    float breath = sin(t * 0.6) * (0.005 + 0.025 * uActivity);
+    vec3 pos = position * (1.0 + breath);
+
+    // Per-particle drift along its OWN random direction. Different
+    // particles drift different ways → not synchronized.
+    float drift = sin(t * (0.7 + aSeed * 0.6)) * (0.004 + 0.10 * uActivity);
+    pos += aDir * drift;
+
+    // Tangential swirl (perpendicular to radial × aDir) so each
+    // particle also orbits its own little path around the surface.
+    vec3 tangent = normalize(cross(position, aDir + vec3(0.001)));
+    float swirl = sin(t * (0.5 + aSeed * 0.4) + aPhase) * (0.003 + 0.08 * uActivity);
+    pos += tangent * swirl;
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
@@ -72,8 +74,9 @@ function ShellParticles({ uniforms }: { uniforms: ShaderUniforms }) {
     const COUNT = 5000;
     const positions = new Float32Array(COUNT * 3);
     const seeds = new Float32Array(COUNT);
+    const dirs = new Float32Array(COUNT * 3);
+    const phases = new Float32Array(COUNT);
     for (let i = 0; i < COUNT; i++) {
-      // Fibonacci-like spherical distribution for even coverage
       const u = Math.random();
       const v = Math.random();
       const theta = 2 * Math.PI * u;
@@ -82,14 +85,25 @@ function ShellParticles({ uniforms }: { uniforms: ShaderUniforms }) {
       positions[i * 3 + 1] = Math.cos(phi);
       positions[i * 3 + 2] = Math.sin(phi) * Math.sin(theta);
       seeds[i] = Math.random();
+      // Independent random direction (unit vector, NOT correlated to position)
+      const du = Math.random();
+      const dv = Math.random();
+      const dtheta = 2 * Math.PI * du;
+      const dphi = Math.acos(2 * dv - 1);
+      dirs[i * 3] = Math.sin(dphi) * Math.cos(dtheta);
+      dirs[i * 3 + 1] = Math.cos(dphi);
+      dirs[i * 3 + 2] = Math.sin(dphi) * Math.sin(dtheta);
+      phases[i] = Math.random() * 6.2831;
     }
-    return { positions, seeds };
+    return { positions, seeds, dirs, phases };
   }, []);
   return (
     <points>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[buffers.positions, 3]} />
         <bufferAttribute attach="attributes-aSeed" args={[buffers.seeds, 1]} />
+        <bufferAttribute attach="attributes-aDir" args={[buffers.dirs, 3]} />
+        <bufferAttribute attach="attributes-aPhase" args={[buffers.phases, 1]} />
       </bufferGeometry>
       <shaderMaterial
         uniforms={uniforms}
@@ -120,16 +134,22 @@ const RING_VERT = /* glsl */ `
 
   void main() {
     float motion = 0.12 + 1.4 * uActivity;
-    float angle = aAngle + uTime * uSpeed * motion;
-    float r = uRadius + 0.02 * sin(uTime * 2.0 * motion + aSeed * 10.0);
+    // Per-particle speed variance — orbits don't march in lockstep
+    float speedVar = 0.55 + aSeed * 0.9;
+    float angle = aAngle + uTime * uSpeed * motion * speedVar;
+    // Per-particle radius wobble — varied amplitude/phase
+    float r = uRadius + (0.012 + 0.045 * uActivity) * sin(uTime * (1.2 + aSeed * 1.4) + aSeed * 28.0);
     vec3 pos = vec3(cos(angle) * r, 0.0, sin(angle) * r);
-    pos.y = sin(uTime * 1.4 * motion + aSeed * 20.0) * (0.012 + uActivity * 0.06);
+    // Each particle drifts out of the plane independently
+    pos.y = sin(uTime * (1.0 + aSeed * 1.2) + aSeed * 20.0) * (0.012 + uActivity * 0.10);
+    // Add slight tangential jitter so orbits aren't perfectly circular
+    pos.x += cos(uTime * (0.8 + aSeed * 0.6) + aSeed * 15.0) * (0.005 + uActivity * 0.04);
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (0.9 + 0.6 * uActivity + aSeed * 0.4) * (32.0 / -mv.z);
 
-    vGlow = 0.4 + 0.5 * sin(uTime * 1.8 * motion + aSeed * 35.0);
+    vGlow = 0.4 + 0.5 * sin(uTime * (1.4 + aSeed * 0.8) + aSeed * 35.0);
   }
 `;
 
@@ -218,7 +238,9 @@ const DRIFT_VERT = /* glsl */ `
   varying float vTendrilMix;
 
   void main() {
-    float motion = 0.10 + 1.0 * uActivity;
+    // Per-particle speed variance so the cloud doesn't pulse together
+    float personalSpeed = 0.5 + aSeed * 1.2;
+    float motion = (0.10 + 1.0 * uActivity) * personalSpeed;
     float t = uTime * 0.28 * motion + aSeed * 30.0;
     float theta = t * (0.6 + aSeed * 0.5) + aSeed * 6.2831;
     float phi = aSeed * 3.14159 + sin(uTime * 0.15 * motion + aSeed * 5.0) * 0.5;
@@ -229,7 +251,8 @@ const DRIFT_VERT = /* glsl */ `
     ) * aRadius;
 
     float tendrilMag = length(aDir);
-    float reach = uActivity * tendrilMag * (1.0 + 0.4 * sin(uTime * 2.5 + aSeed * 20.0));
+    // Each tendril reaches with its own rhythm
+    float reach = uActivity * tendrilMag * (1.0 + 0.5 * sin(uTime * (2.0 + aSeed * 1.5) + aSeed * 20.0));
     vec3 pos = idlePos + aDir * reach;
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
@@ -343,9 +366,9 @@ export function NovaOrb({
       (targetActivity - sharedUniforms.uActivity.value) * 0.06;
     sharedUniforms.uColor.value.lerp(targetCol.current, 0.04);
     if (groupRef.current) {
-      const a = sharedUniforms.uActivity.value;
-      groupRef.current.rotation.y += 0.0004 + 0.003 * a;
-      groupRef.current.rotation.x = Math.sin(t * (0.05 + 0.25 * a)) * (0.03 + 0.10 * a);
+      // Very slow, constant y rotation — no activity-driven tilting that
+      // would make the whole sphere look like it's being shaken.
+      groupRef.current.rotation.y += 0.0006;
     }
   });
 
