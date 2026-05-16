@@ -54,8 +54,13 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [voiceOutOn, setVoiceOutOn] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const tts = useSpeechSynthesis("vi-VN");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     let sid = localStorage.getItem("arguenet_session_id");
@@ -220,6 +225,8 @@ export default function ChatPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {mounted && (
+              <>
             <button
               onClick={mic.listening ? mic.stop : mic.start}
               disabled={busy || !mic.supported}
@@ -256,6 +263,8 @@ export default function ChatPage() {
             >
               {voiceOutOn ? "🔊 Loa" : "🔇 Loa"}
             </button>
+              </>
+            )}
             <button
               onClick={reset}
               disabled={busy || messages.length === 0}
