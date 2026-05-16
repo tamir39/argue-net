@@ -94,14 +94,14 @@ export default function ChatPage() {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        const blocks = buffer.split("\n\n");
+        const blocks = buffer.split(/\r?\n\r?\n/);
         buffer = blocks.pop() ?? "";
 
         for (const block of blocks) {
           if (!block.trim()) continue;
           let eventName = "message";
           let dataLine = "";
-          for (const line of block.split("\n")) {
+          for (const line of block.split(/\r?\n/)) {
             if (line.startsWith("event:")) eventName = line.slice(6).trim();
             else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
           }
