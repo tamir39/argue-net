@@ -1,14 +1,15 @@
-import asyncio
 import sys
 
-from rich.console import Console
-from rich.prompt import Prompt
+print("Loading Jarvis (lan dau ~5-10s)...", flush=True)
 
-from app.agents.orchestrator import Jarvis
-from app.config import settings
-from app.schemas.events import StreamEvent
+import asyncio  # noqa: E402
 
-console = Console()
+from rich.console import Console  # noqa: E402
+
+from app.agents.orchestrator import Jarvis  # noqa: E402
+from app.config import settings  # noqa: E402
+
+console = Console(force_terminal=True, soft_wrap=True)
 
 SPEAKER_STYLE: dict[str, tuple[str, str]] = {
     "jarvis": ("bold cyan", "Jarvis"),
@@ -22,29 +23,33 @@ SPEAKER_STYLE: dict[str, tuple[str, str]] = {
 def print_speaker_header(speaker: str) -> None:
     style, label = SPEAKER_STYLE.get(speaker, ("white", speaker))
     console.print(f"\n[{style}]{label}[/{style}]: ", end="")
+    sys.stdout.flush()
 
 
 def print_info(text: str) -> None:
     console.print(f"\n[dim italic]» {text}[/dim italic]")
+    sys.stdout.flush()
 
 
 async def chat_loop(jarvis: Jarvis) -> None:
     while True:
+        sys.stdout.write("\nBạn: ")
+        sys.stdout.flush()
         try:
-            user_msg = Prompt.ask("\n[bold green]Bạn[/bold green]")
+            user_msg = input()
         except (KeyboardInterrupt, EOFError):
-            console.print("\nTạm biệt.")
+            print("\nTạm biệt.")
             return
 
         stripped = user_msg.strip()
         if not stripped:
             continue
         if stripped.lower() in {"exit", "quit", "/exit", "/quit"}:
-            console.print("Tạm biệt.")
+            print("Tạm biệt.")
             return
         if stripped.lower() == "/reset":
             jarvis.reset()
-            console.print("[yellow]Đã xóa ngữ cảnh.[/yellow]")
+            print("(Đã xóa ngữ cảnh.)")
             continue
 
         last_speaker: str | None = None
@@ -57,25 +62,26 @@ async def chat_loop(jarvis: Jarvis) -> None:
                 if ev.speaker != last_speaker:
                     print_speaker_header(ev.speaker)
                     last_speaker = ev.speaker
-                console.print(ev.text, end="", soft_wrap=True, highlight=False)
+                console.print(ev.text, end="", highlight=False)
+                sys.stdout.flush()
         except Exception as exc:
-            console.print(f"\n[red]Lỗi khi gọi LLM:[/red] {exc}")
+            print(f"\n[Lỗi khi gọi LLM] {exc}")
             continue
-        console.print()
+        print()
 
 
 async def main() -> int:
     if not settings.has_any_provider():
-        console.print(
-            "[red]ERROR:[/red] Chưa có API key. Điền GEMINI_API_KEY hoặc "
+        print(
+            "ERROR: Chưa có API key. Điền GEMINI_API_KEY hoặc "
             "ANTHROPIC_API_KEY vào .env ở repo root."
         )
         return 1
 
-    console.print(
-        "[bold cyan]Jarvis[/bold cyan] đã sẵn sàng. "
-        "Câu hỏi mở (vd: 'có nên dùng X?') sẽ kích hoạt nhóm Pro/Con/Mediator. "
-        "[italic]exit[/italic] để thoát, [italic]/reset[/italic] để xóa ngữ cảnh."
+    print(
+        "Jarvis đã sẵn sàng. Câu hỏi mở ('có nên ...', 'X hay Y') "
+        "sẽ kích hoạt Pro/Con/Mediator. Gõ 'exit' để thoát, '/reset' để xóa ngữ cảnh.",
+        flush=True,
     )
 
     jarvis = Jarvis()
