@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -7,6 +8,13 @@ import {
   useMicDevices,
   useSpeechSynthesis,
 } from "./_hooks/voice";
+
+const OrbCanvas = dynamic(
+  () => import("./_components/OrbCanvas").then((m) => m.OrbCanvas),
+  { ssr: false, loading: () => <div className="h-32 sm:h-40" /> },
+);
+
+type OrbSpeaker = "jarvis" | "pro" | "con" | "mediator";
 
 type Speaker = "jarvis" | "pro" | "con" | "mediator" | "system" | "user";
 
@@ -59,7 +67,9 @@ export default function ChatPage() {
   const [sessionId, setSessionId] = useState("");
   const [voiceOutOn, setVoiceOutOn] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [activeSpeaker, setActiveSpeaker] = useState<OrbSpeaker | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const activeSpeakerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tts = useSpeechSynthesis("vi-VN");
 
   useEffect(() => {
@@ -140,6 +150,12 @@ export default function ChatPage() {
 
             if (eventName === "done") {
               flushTts();
+              if (activeSpeakerTimer.current)
+                clearTimeout(activeSpeakerTimer.current);
+              activeSpeakerTimer.current = setTimeout(
+                () => setActiveSpeaker(null),
+                1500,
+              );
               continue;
             }
             if (eventName === "error") {
@@ -163,6 +179,14 @@ export default function ChatPage() {
                 ttsSpeaker = ev.speaker;
               }
               ttsBuffer += ev.text;
+              if (
+                ev.speaker === "jarvis" ||
+                ev.speaker === "pro" ||
+                ev.speaker === "con" ||
+                ev.speaker === "mediator"
+              ) {
+                setActiveSpeaker(ev.speaker as OrbSpeaker);
+              }
               appendToken(setMessages, ev);
             } catch {
               // ignore malformed event
@@ -175,6 +199,12 @@ export default function ChatPage() {
         appendInfo(setMessages, `Lỗi mạng: ${msg}`);
       } finally {
         setBusy(false);
+        if (activeSpeakerTimer.current)
+          clearTimeout(activeSpeakerTimer.current);
+        activeSpeakerTimer.current = setTimeout(
+          () => setActiveSpeaker(null),
+          1500,
+        );
       }
     },
     [input, busy, sessionId, voiceOutOn, tts],
@@ -183,6 +213,7 @@ export default function ChatPage() {
   const reset = useCallback(async () => {
     if (!sessionId) return;
     tts.cancel();
+    setActiveSpeaker(null);
     try {
       await fetch(`${BACKEND_URL}/sessions/reset`, {
         method: "POST",
@@ -343,6 +374,8 @@ export default function ChatPage() {
             )}
           </div>
         </header>
+
+        <OrbCanvas activeSpeaker={activeSpeaker} />
 
         <div
           ref={scrollRef}
