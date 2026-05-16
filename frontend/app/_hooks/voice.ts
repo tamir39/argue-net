@@ -127,6 +127,119 @@ export function useSpeechRecognition(opts: SpeechOpts) {
   return { supported, listening, error, start, stop };
 }
 
+type RecorderOpts = {
+  deviceId?: string;
+  maxDurationMs?: number;
+};
+
+export function useAudioRecorder(opts: RecorderOpts = {}) {
+  const [supported, setSupported] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resolveRef = useRef<((blob: Blob | null) => void) | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSupported(
+      !!navigator.mediaDevices?.getUserMedia &&
+        typeof MediaRecorder !== "undefined",
+    );
+  }, []);
+
+  const start = useCallback(async (): Promise<boolean> => {
+    if (recording) return false;
+    setError(null);
+    chunksRef.current = [];
+    try {
+      const constraints: MediaStreamConstraints = {
+        audio: opts.deviceId
+          ? { deviceId: { exact: opts.deviceId } }
+          : true,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      const rec = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm",
+      });
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      rec.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType });
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        recRef.current = null;
+        setRecording(false);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        resolveRef.current?.(blob.size > 0 ? blob : null);
+        resolveRef.current = null;
+      };
+      recRef.current = rec;
+      rec.start();
+      setRecording(true);
+      const maxMs = opts.maxDurationMs ?? 30000;
+      timeoutRef.current = setTimeout(() => {
+        try {
+          rec.stop();
+        } catch {
+          /* ignore */
+        }
+      }, maxMs);
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(`Không mở được mic: ${msg}`);
+      return false;
+    }
+  }, [recording, opts.deviceId, opts.maxDurationMs]);
+
+  const stop = useCallback((): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      if (!recRef.current || recRef.current.state === "inactive") {
+        resolve(null);
+        return;
+      }
+      resolveRef.current = resolve;
+      try {
+        recRef.current.stop();
+      } catch {
+        resolve(null);
+      }
+    });
+  }, []);
+
+  const cancel = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (recRef.current && recRef.current.state !== "inactive") {
+      try {
+        recRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    recRef.current = null;
+    resolveRef.current?.(null);
+    resolveRef.current = null;
+    setRecording(false);
+  }, []);
+
+  return { supported, recording, error, start, stop, cancel };
+}
+
 export function useMicDevices() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selected, setSelectedState] = useState<string>("");

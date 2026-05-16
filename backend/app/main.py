@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import chat, health
+from app.api import chat, health, transcribe
 
 app = FastAPI(title="ArgueNet", description="Nova orchestrator + multi-agent debate")
 
@@ -24,6 +24,16 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(chat.router)
+app.include_router(transcribe.router)
+
+
+@app.on_event("startup")
+async def _warmup() -> None:
+    import asyncio
+
+    from app.services import whisper
+
+    await asyncio.to_thread(whisper.get_model)
 
 
 @app.get("/")

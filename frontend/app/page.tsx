@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  useAudioRecorder,
   useMicDevices,
-  useSpeechRecognition,
   useSpeechSynthesis,
 } from "./_hooks/voice";
 
@@ -195,27 +195,58 @@ export default function ChatPage() {
     setMessages([]);
   }, [sessionId, tts]);
 
-  const mic = useSpeechRecognition({
-    lang: "vi-VN",
-    onResult: (text, isFinal) => {
-      setInput(text);
-      if (isFinal && text.trim()) {
-        send(text);
-      }
-    },
-  });
-
   const micDevices = useMicDevices();
+  const recorder = useAudioRecorder({
+    deviceId: micDevices.selected,
+    maxDurationMs: 30000,
+  });
+  const [transcribing, setTranscribing] = useState(false);
+  const [sttError, setSttError] = useState<string | null>(null);
 
   const startMic = useCallback(async () => {
+    setSttError(null);
     if (!micDevices.permissionGranted) {
       await micDevices.requestPermission();
     }
-    if (micDevices.selected) {
-      await micDevices.claim(micDevices.selected);
+    await recorder.start();
+  }, [recorder, micDevices]);
+
+  const stopMicAndTranscribe = useCallback(async () => {
+    const blob = await recorder.stop();
+    if (!blob) {
+      setSttError("Không thu được audio.");
+      return;
     }
-    mic.start();
-  }, [mic, micDevices]);
+    setTranscribing(true);
+    try {
+      const fd = new FormData();
+      fd.append("audio", blob, "speech.webm");
+      const res = await fetch(`${BACKEND_URL}/transcribe`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status} ${detail}`);
+      }
+      const data = (await res.json()) as { text: string };
+      const text = (data.text ?? "").trim();
+      if (!text) {
+        setSttError("Không nhận diện được giọng nói.");
+      } else {
+        setInput(text);
+        send(text);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSttError(`Lỗi transcribe: ${msg}`);
+    } finally {
+      setTranscribing(false);
+    }
+  }, [recorder, send]);
+
+  const micError = sttError ?? recorder.error;
+  const micBusy = transcribing;
 
   const toggleVoiceOut = useCallback(() => {
     setVoiceOutOn((on) => {
@@ -247,7 +278,7 @@ export default function ChatPage() {
               <select
                 value={micDevices.selected}
                 onChange={(e) => micDevices.setSelected(e.target.value)}
-                disabled={busy || mic.listening}
+                disabled={busy || recorder.recording || micBusy}
                 title="Chọn microphone"
                 className="text-xs bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1.5 max-w-[180px] truncate"
               >
@@ -260,22 +291,28 @@ export default function ChatPage() {
               </select>
             )}
             <button
-              onClick={mic.listening ? mic.stop : startMic}
-              disabled={busy || !mic.supported}
+              onClick={recorder.recording ? stopMicAndTranscribe : startMic}
+              disabled={busy || micBusy || !recorder.supported}
               title={
-                !mic.supported
-                  ? "Browser không hỗ trợ SpeechRecognition (thử Chrome/Edge)"
-                  : mic.listening
-                    ? "Đang nghe — bấm để dừng"
-                    : "Bấm để nói"
+                !recorder.supported
+                  ? "Browser không hỗ trợ MediaRecorder"
+                  : micBusy
+                    ? "Đang chuyển giọng nói thành chữ…"
+                    : recorder.recording
+                      ? "Đang ghi — bấm để dừng và gửi"
+                      : "Bấm để ghi giọng nói"
               }
               className={`text-xs px-3 py-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                mic.listening
+                recorder.recording
                   ? "border-rose-500 bg-rose-500/15 text-rose-200 animate-pulse"
                   : "border-zinc-700 hover:bg-zinc-800 text-zinc-200"
               }`}
             >
-              {mic.listening ? "● Nghe" : "🎤 Mic"}
+              {micBusy
+                ? "⏳ Nhận…"
+                : recorder.recording
+                  ? "● Đang ghi"
+                  : "🎤 Mic"}
             </button>
             <button
               onClick={toggleVoiceOut}
@@ -311,7 +348,7 @@ export default function ChatPage() {
           ref={scrollRef}
           className="flex-1 overflow-y-auto py-4 space-y-3"
         >
-          {messages.length === 0 && !mic.error && (
+          {messages.length === 0 && !micError && (
             <div className="text-zinc-500 text-sm text-center py-16 leading-relaxed">
               Hỏi gì đó.
               <br />
@@ -320,9 +357,9 @@ export default function ChatPage() {
               </span>
             </div>
           )}
-          {mic.error && (
+          {micError && (
             <div className="text-rose-300 text-xs text-center py-2 px-3 border border-rose-900/50 rounded-md bg-rose-950/30">
-              🎤 {mic.error}
+              🎤 {micError}
             </div>
           )}
           {messages.map((m, i) => (
