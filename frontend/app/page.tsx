@@ -14,6 +14,8 @@ const NovaScene = dynamic(
   { ssr: false, loading: () => null },
 );
 
+import { BgGrid, HudFrame, Ripple, ScanLine } from "./_components/HudFx";
+
 type OrbSpeaker = "jarvis" | "pro" | "con" | "mediator";
 
 type Speaker = "jarvis" | "pro" | "con" | "mediator" | "system" | "user";
@@ -286,9 +288,14 @@ export default function ChatPage() {
     });
   }, [tts]);
 
+  const isActive = !!activeSpeaker || busy;
+
   return (
     <>
       <NovaScene activeSpeaker={activeSpeaker} />
+      <BgGrid />
+      <Ripple active={isActive} />
+      <ScanLine active={isActive} />
 
       <div className="fixed inset-0 z-10 flex flex-col pointer-events-none">
         {/* TOP BAR */}
@@ -390,7 +397,10 @@ export default function ChatPage() {
           )}
 
           {messages.length > 0 && (
-            <div className="pointer-events-auto w-full max-w-3xl rounded-lg border border-cyan-900/30 bg-zinc-950/45 backdrop-blur-md shadow-[0_0_40px_-15px_rgba(34,211,238,0.35)]">
+            <HudFrame
+              active={isActive}
+              className="pointer-events-auto w-full max-w-3xl rounded-lg border border-cyan-900/30 bg-zinc-950/45 backdrop-blur-md shadow-[0_0_40px_-15px_rgba(34,211,238,0.35)]"
+            >
               <div
                 ref={scrollRef}
                 className="max-h-56 overflow-y-auto px-4 py-3 space-y-3"
@@ -405,7 +415,7 @@ export default function ChatPage() {
                     </div>
                   )}
               </div>
-            </div>
+            </HudFrame>
           )}
         </div>
 
