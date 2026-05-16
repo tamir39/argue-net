@@ -11,6 +11,7 @@ type SpeechOpts = {
 export function useSpeechRecognition(opts: SpeechOpts) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recRef = useRef<any>(null);
   const cbRef = useRef(opts);
@@ -33,6 +34,18 @@ export function useSpeechRecognition(opts: SpeechOpts) {
     rec.lang = opts.lang ?? "vi-VN";
     rec.continuous = false;
     rec.interimResults = true;
+    rec.onstart = () => {
+      console.log("[STT] start");
+      setError(null);
+    };
+    rec.onaudiostart = () => console.log("[STT] audiostart");
+    rec.onsoundstart = () => console.log("[STT] soundstart");
+    rec.onspeechstart = () => console.log("[STT] speechstart");
+    rec.onspeechend = () => console.log("[STT] speechend");
+    rec.onnomatch = () => {
+      console.warn("[STT] nomatch");
+      setError("Không match được giọng nói thành chữ.");
+    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (e: any) => {
       let final = "";
@@ -44,13 +57,29 @@ export function useSpeechRecognition(opts: SpeechOpts) {
         else interim += t;
       }
       const text = (final || interim).trim();
+      console.log("[STT] result", { text, isFinal: !!final });
       cbRef.current.onResult?.(text, !!final);
     };
     rec.onend = () => {
+      console.log("[STT] end");
       setListening(false);
       cbRef.current.onEnd?.();
     };
-    rec.onerror = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      const code = e?.error ?? "unknown";
+      const msg = e?.message ?? "";
+      console.error("[STT] error", code, msg, e);
+      const labels: Record<string, string> = {
+        "no-speech": "Không nghe thấy gì. Nói to hơn hoặc lại gần mic.",
+        "audio-capture": "Không truy cập được mic. Plug vào / kiểm tra Settings → Sound → Input.",
+        "not-allowed": "Browser chặn quyền mic. Cấp lại quyền ở padlock cạnh URL.",
+        "network": "Browser cần Internet để chạy STT (Google service). Kiểm tra mạng.",
+        "language-not-supported": "Browser không hỗ trợ vi-VN. Đổi sang Chrome/Edge.",
+        "service-not-allowed": "STT service bị chặn (firewall? extension?).",
+        "aborted": "Đã hủy.",
+      };
+      setError(labels[code] ?? `STT lỗi: ${code}`);
       setListening(false);
     };
     recRef.current = rec;
@@ -82,7 +111,7 @@ export function useSpeechRecognition(opts: SpeechOpts) {
     }
   }, []);
 
-  return { supported, listening, start, stop };
+  return { supported, listening, error, start, stop };
 }
 
 export function useMicDevices() {

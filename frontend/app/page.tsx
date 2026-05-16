@@ -311,13 +311,18 @@ export default function ChatPage() {
           ref={scrollRef}
           className="flex-1 overflow-y-auto py-4 space-y-3"
         >
-          {messages.length === 0 && (
+          {messages.length === 0 && !mic.error && (
             <div className="text-zinc-500 text-sm text-center py-16 leading-relaxed">
               Hỏi gì đó.
               <br />
               <span className="text-xs">
                 Câu hỏi mở (vd. &quot;nên dùng X hay Y?&quot;) sẽ kích hoạt nhóm tranh luận.
               </span>
+            </div>
+          )}
+          {mic.error && (
+            <div className="text-rose-300 text-xs text-center py-2 px-3 border border-rose-900/50 rounded-md bg-rose-950/30">
+              🎤 {mic.error}
             </div>
           )}
           {messages.map((m, i) => (
