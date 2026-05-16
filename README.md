@@ -1,6 +1,6 @@
 # ArgueNet
 
-A "Jarvis-like" multi-agent AI conversational system. A main orchestrator agent (Jarvis) talks with the user and can summon multiple sub-agents to debate when a question needs multiple perspectives. Voice-capable (planned).
+A "Jarvis-like" multi-agent AI conversational system. **Nova** is the main orchestrator; when a question needs multiple perspectives, Nova summons three sub-agents — **Sol** (optimistic, pro), **Umbra** (cautious, contra), and **Polaris** (neutral synthesizer) — to debate before recommending. Voice-capable (planned).
 
 ## Status
 
@@ -11,17 +11,17 @@ See the implementation roadmap below.
 ## Vision
 
 ```
-User  ⇄  Jarvis (orchestrator)
+User  ⇄  Nova (orchestrator)
               │
               ├── decides: direct answer OR debate
               │
-              └── summons:  Pro Agent  ⇄  Con Agent  ⇄  Mediator
-                              │             │             │
-                              └─────────────┴─────────────┘
-                                         ↓
-                                   Jarvis synthesizes
-                                         ↓
-                                   reply to user
+              └── summons:  Sol (Pro)  ⇄  Umbra (Con)  ⇄  Polaris (Mediator)
+                                │            │              │
+                                └────────────┴──────────────┘
+                                            ↓
+                                     Nova synthesizes
+                                            ↓
+                                       reply to user
 ```
 
 - **Frontend**: Next.js 15 (App Router) + Tailwind + shadcn/ui.

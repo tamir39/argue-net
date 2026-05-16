@@ -6,13 +6,20 @@ from app.config import settings
 from app.providers.litellm_provider import complete, stream_completion
 from app.schemas.events import Speaker, StreamEvent
 
-JARVIS_SYSTEM = """Bạn là Jarvis — trợ lý AI cá nhân, lấy cảm hứng từ J.A.R.V.I.S. trong Iron Man.
+NOVA_SYSTEM = """Bạn là NOVA — trợ lý AI cá nhân, một ngôi sao bùng sáng dẫn đường cho người dùng.
 
 Phong cách:
-- Thông minh, lịch sự, hơi hài hước nhẹ. Trả lời ngắn gọn.
-- Tiếng Việt mặc định.
-- Khi đã có ý kiến của nhóm tranh luận (Pro/Con/Mediator), bạn tổng hợp ngắn
-  và đưa khuyến nghị cuối kèm một bước hành động cụ thể."""
+- Thông minh, lịch sự, hơi hài hước nhẹ.
+- Trả lời ngắn gọn, đầy đủ. Tiếng Việt mặc định.
+- Xưng "tôi", gọi người dùng là "bạn" (không phải "ngài").
+
+Khi cần ý kiến đa chiều, NOVA triệu hồi nhóm tranh luận gồm:
+- SOL (mặt trời) — tiếng nói ủng hộ, lạc quan.
+- UMBRA (bóng tối) — tiếng nói phản biện, cẩn trọng.
+- POLARIS (sao Bắc Đẩu) — người dẫn đường, tổng hợp công bằng.
+
+Sau khi nghe SOL, UMBRA, POLARIS, bạn (NOVA) tổng hợp và đưa khuyến nghị
+cuối kèm một bước hành động cụ thể."""
 
 CLASSIFIER_PROMPT = """Người dùng vừa nói: "{msg}"
 
@@ -23,12 +30,12 @@ Câu này có cần nhiều quan điểm tranh luận không?
 Trả lời CHỈ 1 từ: DEBATE hoặc DIRECT."""
 
 
-class Jarvis:
+class Nova:
     def __init__(self) -> None:
         self.agent = Agent(
-            name="Jarvis",
+            name="Nova",
             model=settings.jarvis_model,
-            system_prompt=JARVIS_SYSTEM,
+            system_prompt=NOVA_SYSTEM,
         )
 
     def reset(self) -> None:
@@ -81,7 +88,7 @@ class Jarvis:
     async def _run_debate(self, topic: str) -> AsyncIterator[StreamEvent]:
         yield StreamEvent(
             speaker="jarvis",
-            text="Đang triệu hồi nhóm tranh luận...",
+            text="Đang triệu hồi Sol, Umbra và Polaris...",
             kind="info",
         )
 
@@ -89,54 +96,54 @@ class Jarvis:
         con = make_con()
         mediator = make_mediator()
 
-        pro_first: list[str] = []
+        sol_first: list[str] = []
         async for ev in self._stream_agent(
             pro,
             f'Chủ đề: "{topic}". Hãy đưa quan điểm ỦNG HỘ.',
             "pro",
-            pro_first,
+            sol_first,
         ):
             yield ev
 
-        con_first: list[str] = []
+        umbra_first: list[str] = []
         async for ev in self._stream_agent(
             con,
-            f'Chủ đề: "{topic}".\nĐối phương vừa nói: "{pro_first[0]}"\nPhản biện ngắn gọn.',
+            f'Chủ đề: "{topic}".\nSol vừa nói: "{sol_first[0]}"\nPhản biện ngắn gọn.',
             "con",
-            con_first,
+            umbra_first,
         ):
             yield ev
 
-        pro_second: list[str] = []
+        sol_second: list[str] = []
         async for ev in self._stream_agent(
             pro,
-            f'Đối phương vừa phản biện: "{con_first[0]}"\nBổ sung hoặc phản biện lại, tối đa 3 câu.',
+            f'Umbra vừa phản biện: "{umbra_first[0]}"\nBổ sung hoặc phản biện lại, tối đa 3 câu.',
             "pro",
-            pro_second,
+            sol_second,
         ):
             yield ev
 
-        med_out: list[str] = []
+        polaris_out: list[str] = []
         med_prompt = (
             f'Chủ đề: "{topic}"\n\n'
-            f'PRO mở đầu: {pro_first[0]}\n\n'
-            f'CON phản biện: {con_first[0]}\n\n'
-            f'PRO bổ sung: {pro_second[0]}\n\n'
-            "Tổng hợp lại theo đúng vai Mediator."
+            f'SOL mở đầu: {sol_first[0]}\n\n'
+            f'UMBRA phản biện: {umbra_first[0]}\n\n'
+            f'SOL bổ sung: {sol_second[0]}\n\n'
+            "Tổng hợp theo đúng vai Polaris — người dẫn đường công bằng."
         )
-        async for ev in self._stream_agent(mediator, med_prompt, "mediator", med_out):
+        async for ev in self._stream_agent(mediator, med_prompt, "mediator", polaris_out):
             yield ev
 
-        jarvis_prompt = (
+        nova_prompt = (
             f'Cuộc tranh luận về "{topic}" vừa kết thúc.\n\n'
-            f'PRO: {pro_first[0]}\n'
-            f'CON: {con_first[0]}\n'
-            f'PRO bổ sung: {pro_second[0]}\n'
-            f'Mediator: {med_out[0]}\n\n'
+            f'SOL: {sol_first[0]}\n'
+            f'UMBRA: {umbra_first[0]}\n'
+            f'SOL bổ sung: {sol_second[0]}\n'
+            f'POLARIS: {polaris_out[0]}\n\n'
             "Đưa khuyến nghị cuối cùng cho người dùng — 2-3 câu, kèm 1 hành động "
             "cụ thể họ nên làm tiếp."
         )
-        messages = self.agent.build_messages(jarvis_prompt)
+        messages = self.agent.build_messages(nova_prompt)
         collected: list[str] = []
         async for chunk in stream_completion(self.agent.model, messages):
             collected.append(chunk)

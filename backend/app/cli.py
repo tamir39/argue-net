@@ -1,21 +1,21 @@
 import sys
 
-print("Loading Jarvis (lan dau ~5-10s)...", flush=True)
+print("Loading Nova (lan dau ~5-10s)...", flush=True)
 
 import asyncio  # noqa: E402
 
 from rich.console import Console  # noqa: E402
 
-from app.agents.orchestrator import Jarvis  # noqa: E402
+from app.agents.orchestrator import Nova  # noqa: E402
 from app.config import settings  # noqa: E402
 
 console = Console(force_terminal=True, soft_wrap=True)
 
 SPEAKER_STYLE: dict[str, tuple[str, str]] = {
-    "jarvis": ("bold cyan", "Jarvis"),
-    "pro": ("bold green", "Pro"),
-    "con": ("bold red", "Con"),
-    "mediator": ("bold yellow", "Mediator"),
+    "jarvis": ("bold cyan", "Nova"),
+    "pro": ("bold green", "Sol"),
+    "con": ("bold red", "Umbra"),
+    "mediator": ("bold yellow", "Polaris"),
     "system": ("dim", "System"),
 }
 
@@ -31,7 +31,7 @@ def print_info(text: str) -> None:
     sys.stdout.flush()
 
 
-async def chat_loop(jarvis: Jarvis) -> None:
+async def chat_loop(nova: Nova) -> None:
     while True:
         sys.stdout.write("\nBạn: ")
         sys.stdout.flush()
@@ -48,13 +48,13 @@ async def chat_loop(jarvis: Jarvis) -> None:
             print("Tạm biệt.")
             return
         if stripped.lower() == "/reset":
-            jarvis.reset()
+            nova.reset()
             print("(Đã xóa ngữ cảnh.)")
             continue
 
         last_speaker: str | None = None
         try:
-            async for ev in jarvis.stream_reply(stripped):
+            async for ev in nova.stream_reply(stripped):
                 if ev.kind == "info":
                     print_info(ev.text)
                     last_speaker = None
@@ -79,13 +79,13 @@ async def main() -> int:
         return 1
 
     print(
-        "Jarvis đã sẵn sàng. Câu hỏi mở ('có nên ...', 'X hay Y') "
-        "sẽ kích hoạt Pro/Con/Mediator. Gõ 'exit' để thoát, '/reset' để xóa ngữ cảnh.",
+        "Nova đã sẵn sàng. Câu hỏi mở ('có nên ...', 'X hay Y') sẽ kích hoạt "
+        "Sol / Umbra / Polaris. Gõ 'exit' để thoát, '/reset' để xóa ngữ cảnh.",
         flush=True,
     )
 
-    jarvis = Jarvis()
-    await chat_loop(jarvis)
+    nova = Nova()
+    await chat_loop(nova)
     return 0
 
 
