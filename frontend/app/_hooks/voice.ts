@@ -8,6 +8,16 @@ type SpeechOpts = {
   onEnd?: () => void;
 };
 
+const STT_ERROR_LABELS: Record<string, string> = {
+  "no-speech": "Không nghe thấy gì. Nói to hơn hoặc lại gần mic.",
+  "audio-capture": "Không truy cập được mic. Plug vào / kiểm tra Settings → Sound → Input.",
+  "not-allowed": "Browser chặn quyền mic. Cấp lại quyền ở padlock cạnh URL.",
+  network: "STT service không reachable. Thử lại sau vài giây.",
+  "language-not-supported": "Browser không hỗ trợ vi-VN. Đổi sang Chrome/Edge.",
+  "service-not-allowed": "STT service bị chặn (firewall? extension?).",
+  aborted: "Đã hủy.",
+};
+
 export function useSpeechRecognition(opts: SpeechOpts) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
@@ -25,15 +35,22 @@ export function useSpeechRecognition(opts: SpeechOpts) {
       (window as any).SpeechRecognition ??
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).webkitSpeechRecognition;
-    if (!Ctor) {
-      setSupported(false);
-      return;
-    }
-    setSupported(true);
+    setSupported(!!Ctor);
+  }, []);
+
+  const createRecognition = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const Ctor: any =
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).SpeechRecognition ??
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).webkitSpeechRecognition;
+    if (!Ctor) return null;
     const rec = new Ctor();
     rec.lang = opts.lang ?? "vi-VN";
     rec.continuous = false;
     rec.interimResults = true;
+
     rec.onstart = () => {
       console.log("[STT] start");
       setError(null);
@@ -70,37 +87,33 @@ export function useSpeechRecognition(opts: SpeechOpts) {
       const code = e?.error ?? "unknown";
       const msg = e?.message ?? "";
       console.error("[STT] error", code, msg, e);
-      const labels: Record<string, string> = {
-        "no-speech": "Không nghe thấy gì. Nói to hơn hoặc lại gần mic.",
-        "audio-capture": "Không truy cập được mic. Plug vào / kiểm tra Settings → Sound → Input.",
-        "not-allowed": "Browser chặn quyền mic. Cấp lại quyền ở padlock cạnh URL.",
-        "network": "Browser cần Internet để chạy STT (Google service). Kiểm tra mạng.",
-        "language-not-supported": "Browser không hỗ trợ vi-VN. Đổi sang Chrome/Edge.",
-        "service-not-allowed": "STT service bị chặn (firewall? extension?).",
-        "aborted": "Đã hủy.",
-      };
-      setError(labels[code] ?? `STT lỗi: ${code}`);
+      setError(STT_ERROR_LABELS[code] ?? `STT lỗi: ${code}`);
       setListening(false);
     };
-    recRef.current = rec;
-    return () => {
-      try {
-        rec.abort();
-      } catch {
-        /* ignore */
-      }
-    };
+    return rec;
   }, [opts.lang]);
 
   const start = useCallback(() => {
-    if (!recRef.current || listening) return;
-    try {
-      recRef.current.start();
-      setListening(true);
-    } catch {
-      /* already started or transient — ignore */
+    if (listening) return;
+    if (recRef.current) {
+      try {
+        recRef.current.abort();
+      } catch {
+        /* ignore */
+      }
+      recRef.current = null;
     }
-  }, [listening]);
+    const rec = createRecognition();
+    if (!rec) return;
+    recRef.current = rec;
+    try {
+      rec.start();
+      setListening(true);
+    } catch (e) {
+      console.error("[STT] start() failed", e);
+      setError("Không khởi động được STT. Reload trang và thử lại.");
+    }
+  }, [listening, createRecognition]);
 
   const stop = useCallback(() => {
     if (!recRef.current) return;
