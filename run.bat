@@ -1,27 +1,28 @@
-@echo on
+@echo off
+REM ArgueNet one-click launcher.
+REM Opens TWO new CMD windows:
+REM   - FastAPI backend  (http://localhost:8765)
+REM   - Next.js frontend (http://localhost:4321)
+REM Then prints the URL to open in your browser.
+
 setlocal
 
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
-cd /d "%~dp0backend"
-
-echo Working dir: %CD%
-echo Looking for uv...
-where uv
-if errorlevel 1 (
-    echo.
-    echo ERROR: `uv` khong co trong PATH. Cai uv: https://docs.astral.sh/uv/
-    pause
-    exit /b 1
-)
+start "ArgueNet Backend (FastAPI :8765)" cmd /k "cd /d %~dp0backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8765"
+start "ArgueNet Frontend (Next.js :4321)" cmd /k "cd /d %~dp0frontend && npm run dev -- -p 4321"
 
 echo.
-echo Starting Jarvis CLI...
+echo Started two servers in separate CMD windows.
 echo.
-
-uv run python -m app.cli
-
+echo   Backend  : http://localhost:8765
+echo   Frontend : http://localhost:4321
 echo.
-echo === CLI da thoat. ===
-pause
+echo === Open this in your browser ===
+echo   http://localhost:4321
+echo =================================
+echo.
+echo Close the two CMD windows to stop the servers.
+echo (This launcher window can be closed safely.)
+pause >nul
